@@ -17,7 +17,7 @@ const CACHE_DURATION = 30 * 60 * 1000;
 
 async function fetchKaoyanWordList() {
   if (cachedWordList && (Date.now() - cacheTime < CACHE_DURATION)) {
-    console.log('Using cached word list');
+    console.log('Using cached word list, count:', cachedWordList.length);
     return cachedWordList;
   }
   
@@ -29,15 +29,28 @@ async function fetchKaoyanWordList() {
     );
     
     if (response.data && Array.isArray(response.data)) {
-      cachedWordList = response.data.map(item => item.word || item.name || item);
+      // 打印第一个元素看看格式
+      console.log('First item format:', JSON.stringify(response.data[0]));
+      
+      // 根据实际格式提取单词
+      cachedWordList = response.data.map(item => {
+        if (typeof item === 'string') return item;
+        if (item.word) return item.word;
+        if (item.name) return item.name;
+        if (item.headWord) return item.headWord;
+        return String(item);
+      }).filter(w => w && w.length > 0);
+      
       cacheTime = Date.now();
       console.log('Got ' + cachedWordList.length + ' words');
+      console.log('First 10 words:', cachedWordList.slice(0, 10).join(', '));
       return cachedWordList;
     }
   } catch (error) {
     console.log('Failed to fetch word list:', error.message);
   }
   
+  console.log('Using backup words');
   return BACKUP_WORDS;
 }
 
@@ -141,7 +154,24 @@ async function getWordWithCache(word) {
   }
 }
 
-const BACKUP_WORDS = ['abandon', 'ability', 'able', 'abnormal', 'abroad', 'absence', 'absolute', 'absorb', 'abstract', 'abuse', 'academic', 'accelerate', 'accept', 'access', 'accident', 'accommodate', 'accompany', 'accomplish', 'account', 'accurate', 'achieve', 'acknowledge', 'acquire', 'action', 'active', 'actual', 'adapt', 'addition', 'address', 'adequate'];
+const BACKUP_WORDS = [
+  'abandon', 'ability', 'able', 'abnormal', 'abroad', 'absence', 'absolute', 
+  'absorb', 'abstract', 'abuse', 'academic', 'accelerate', 'accept', 'access',
+  'accident', 'accommodate', 'accompany', 'accomplish', 'account', 'accurate',
+  'achieve', 'acknowledge', 'acquire', 'action', 'active', 'actual', 'adapt',
+  'addition', 'address', 'adequate', 'adjust', 'administration', 'admire',
+  'admit', 'adopt', 'adult', 'advance', 'advantage', 'advertise', 'advice',
+  'affair', 'affect', 'afford', 'afraid', 'agency', 'agent', 'aggressive',
+  'agree', 'agriculture', 'ahead', 'aid', 'aim', 'aircraft', 'alarm',
+  'alcohol', 'alive', 'allow', 'almost', 'alone', 'along', 'already',
+  'alter', 'alternative', 'although', 'altogether', 'always', 'amateur',
+  'amaze', 'ambition', 'among', 'amount', 'analyse', 'analysis', 'ancestor',
+  'ancient', 'anger', 'angle', 'angry', 'animal', 'announce', 'annual',
+  'another', 'answer', 'anticipate', 'anxiety', 'anxious', 'apart',
+  'apartment', 'apologize', 'apparent', 'appeal', 'appear', 'appearance',
+  'application', 'apply', 'appoint', 'appreciate', 'approach', 'appropriate',
+  'approve', 'area', 'argue', 'argument', 'arise', 'arm', 'army', 'around'
+];
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
