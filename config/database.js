@@ -50,8 +50,7 @@ if (MYSQL_ADDRESS || process.env.DATABASE_URL || (process.env.DB_HOST && process
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    acquireTimeout: 60000,
-    timeout: 60000,
+    connectTimeout: 60000,
     // 云数据库SSL配置
     ssl: process.env.DB_SSL === 'true' ? {
       rejectUnauthorized: false
