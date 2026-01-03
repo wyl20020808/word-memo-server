@@ -9,9 +9,13 @@ router.post('/login', async (req, res) => {
   try {
     const { code, userInfo } = req.body;
     
-    // 这里应该调用微信API获取openid，为了演示简化处理
-    // 实际项目中需要调用 https://api.weixin.qq.com/sns/jscode2session
-    const openid = `demo_${Date.now()}`; // 演示用的openid
+    console.log('📱 收到登录请求:', { code: code ? '有' : '无', userInfo: userInfo ? '有' : '无' });
+    
+    // 生成唯一的openid（实际项目中应该调用微信API）
+    // 为了简化，使用固定的openid便于测试
+    const openid = code ? `wx_${code.substring(0, 10)}` : `demo_user_001`;
+    
+    console.log('🔑 生成openid:', openid);
     
     // 查找或创建用户
     let [users] = await pool.execute(
@@ -19,20 +23,23 @@ router.post('/login', async (req, res) => {
       [openid]
     );
     
+    console.log('👤 查询用户结果:', users.length > 0 ? '找到用户' : '新用户');
+    
     let user;
     if (users.length === 0) {
       // 创建新用户
       const [result] = await pool.execute(
         'INSERT INTO users (openid, nickname, avatar_url) VALUES (?, ?, ?)',
-        [openid, userInfo?.nickName || '', userInfo?.avatarUrl || '']
+        [openid, userInfo?.nickName || '微信用户', userInfo?.avatarUrl || '']
       );
       
       user = {
         id: result.insertId,
         openid,
-        nickname: userInfo?.nickName || '',
+        nickname: userInfo?.nickName || '微信用户',
         avatar_url: userInfo?.avatarUrl || ''
       };
+      console.log('✅ 创建新用户成功:', user.id);
     } else {
       user = users[0];
       
@@ -43,14 +50,18 @@ router.post('/login', async (req, res) => {
           [userInfo.nickName || user.nickname, userInfo.avatarUrl || user.avatar_url, user.id]
         );
       }
+      console.log('✅ 用户已存在:', user.id);
     }
     
     // 生成JWT token
+    const jwtSecret = process.env.JWT_SECRET || 'default_jwt_secret_for_dev';
     const token = jwt.sign(
       { userId: user.id, openid: user.openid },
-      process.env.JWT_SECRET,
+      jwtSecret,
       { expiresIn: '30d' }
     );
+    
+    console.log('🎫 生成token成功');
     
     res.json({
       success: true,
@@ -65,10 +76,12 @@ router.post('/login', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('登录失败:', error);
+    console.error('❌ 登录失败:', error);
+    console.error('错误详情:', error.message);
+    console.error('错误堆栈:', error.stack);
     res.status(500).json({
       success: false,
-      message: '登录失败'
+      message: '登录失败: ' + error.message
     });
   }
 });
