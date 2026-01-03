@@ -87,37 +87,57 @@ async function fetchWordFromAPI(word) {
 
 async function getWordWithCache(word) {
   try {
+    // 1. 先查数据库缓存
     const [cached] = await pool.execute('SELECT * FROM words WHERE word = ?', [word]);
     if (cached.length > 0) {
-      return cached[0];
+      console.log('From cache: ' + word);
+      return { ...cached[0] }; // 返回副本，避免引用问题
     }
     
+    // 2. 从API获取
     const wordData = await fetchWordFromAPI(word);
     if (!wordData) {
-      return { word, phonetic: '', meaning: 'No definition', example: '', audio_url: '' };
+      console.log('API failed for: ' + word + ', returning placeholder');
+      // 返回新对象，避免引用问题
+      return { 
+        word: word, 
+        phonetic: '', 
+        meaning: 'No definition available', 
+        example: '', 
+        audio_url: '' 
+      };
     }
     
+    // 3. 存入数据库
     try {
       await pool.execute(
         'INSERT INTO words (word, phonetic, meaning, example, audio_url, category) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), meaning = VALUES(meaning), example = VALUES(example), audio_url = VALUES(audio_url)',
         [wordData.word, wordData.phonetic, wordData.meaning, wordData.example, wordData.audio_url, 'kaoyan']
       );
       
-      // 重新查询获取完整的记录（包括id）
+      // 重新查询获取完整记录
       const [inserted] = await pool.execute('SELECT * FROM words WHERE word = ?', [word]);
       if (inserted.length > 0) {
-        return inserted[0];
+        console.log('Cached to DB: ' + word);
+        return { ...inserted[0] }; // 返回副本
       }
-      
-      console.log('Cached to DB: ' + word);
     } catch (dbError) {
-      console.log('Cache failed: ' + word);
+      console.log('DB cache failed for: ' + word, dbError.message);
     }
     
-    return wordData;
+    // 返回API数据的副本
+    return { ...wordData };
+    
   } catch (error) {
-    console.error('Get word failed:', error);
-    return { word, phonetic: '', meaning: 'No definition', example: '', audio_url: '' };
+    console.error('Get word failed for: ' + word, error.message);
+    // 返回新对象
+    return { 
+      word: word, 
+      phonetic: '', 
+      meaning: 'Error loading definition', 
+      example: '', 
+      audio_url: '' 
+    };
   }
 }
 
