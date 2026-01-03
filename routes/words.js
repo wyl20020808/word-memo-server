@@ -98,11 +98,17 @@ async function getWordWithCache(word) {
     }
     
     try {
-      const [result] = await pool.execute(
+      await pool.execute(
         'INSERT INTO words (word, phonetic, meaning, example, audio_url, category) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), meaning = VALUES(meaning), example = VALUES(example), audio_url = VALUES(audio_url)',
         [wordData.word, wordData.phonetic, wordData.meaning, wordData.example, wordData.audio_url, 'kaoyan']
       );
-      wordData.id = result.insertId;
+      
+      // 重新查询获取完整的记录（包括id）
+      const [inserted] = await pool.execute('SELECT * FROM words WHERE word = ?', [word]);
+      if (inserted.length > 0) {
+        return inserted[0];
+      }
+      
       console.log('Cached to DB: ' + word);
     } catch (dbError) {
       console.log('Cache failed: ' + word);
@@ -149,23 +155,32 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     
     const wordsToReturn = newWords.slice(0, limit);
+    console.log('Words to return:', wordsToReturn.slice(0, 5).join(', ') + '...');
     
+    // 批量获取单词详情（限制并发数为5）
     const wordsWithDetails = [];
-    for (const word of wordsToReturn) {
-      const wordData = await getWordWithCache(word);
-      wordsWithDetails.push({
-        ...wordData,
-        user_rating: 0,
-        learned_count: 0,
-        is_collected: 0
-      });
+    const batchSize = 5;
+    for (let i = 0; i < wordsToReturn.length; i += batchSize) {
+      const batch = wordsToReturn.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(word => getWordWithCache(word))
+      );
+      wordsWithDetails.push(...batchResults);
     }
     
-    console.log('Returning ' + wordsWithDetails.length + ' words');
+    // 添加用户数据
+    const finalWords = wordsWithDetails.map(wordData => ({
+      ...wordData,
+      user_rating: 0,
+      learned_count: 0,
+      is_collected: 0
+    }));
+    
+    console.log('Returning ' + finalWords.length + ' words');
     
     res.json({
       success: true,
-      data: wordsWithDetails,
+      data: finalWords,
       total: allWords.length,
       learned: learnedWords.size,
       remaining: newWords.length,
