@@ -6,15 +6,47 @@ let pool;
 let memoryDB;
 let useMemoryDB = false;
 
+// 微信云托管MySQL环境变量
+const MYSQL_ADDRESS = process.env.MYSQL_ADDRESS; // 格式: 10.21.101.77:3306
+const MYSQL_USERNAME = process.env.MYSQL_USERNAME;
+const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD;
+
+// 解析MySQL地址
+let mysqlHost = process.env.DB_HOST || 'localhost';
+let mysqlPort = process.env.DB_PORT || 3306;
+
+if (MYSQL_ADDRESS) {
+  const parts = MYSQL_ADDRESS.split(':');
+  mysqlHost = parts[0];
+  mysqlPort = parts[1] ? parseInt(parts[1]) : 3306;
+}
+
+// 获取数据库用户名和密码
+const dbUser = MYSQL_USERNAME || process.env.DB_USER || 'root';
+const dbPassword = MYSQL_PASSWORD || process.env.DB_PASSWORD;
+
+console.log('🔍 数据库配置检测:');
+console.log('  - MYSQL_ADDRESS:', MYSQL_ADDRESS || '未设置');
+console.log('  - MYSQL_USERNAME:', MYSQL_USERNAME || '未设置');
+console.log('  - MYSQL_PASSWORD:', MYSQL_PASSWORD ? '已设置' : '未设置');
+console.log('  - 解析后的Host:', mysqlHost);
+console.log('  - 解析后的Port:', mysqlPort);
+
 // 创建数据库连接池
-if (process.env.DATABASE_URL || (process.env.DB_HOST && process.env.DB_PASSWORD)) {
+if (MYSQL_ADDRESS || process.env.DATABASE_URL || (process.env.DB_HOST && process.env.DB_PASSWORD)) {
+  console.log('✅ 检测到MySQL配置，使用MySQL数据库');
+  
+  // 微信云托管默认数据库名为 nodejs（或者你创建的数据库名）
+  const dbName = process.env.MYSQL_DATABASE || process.env.DB_NAME || 'word_memo';
+  console.log('  - 数据库名:', dbName);
+  
   // 使用真实数据库
   pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME || 'word_memo',
-    port: process.env.DB_PORT || 3306,
+    host: mysqlHost,
+    user: dbUser,
+    password: dbPassword,
+    database: dbName,
+    port: mysqlPort,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
