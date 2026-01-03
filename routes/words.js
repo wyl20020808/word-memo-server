@@ -115,6 +115,7 @@ router.get('/', authenticateToken, async (req, res) => {
       word: w.word,
       phonetic: w.phonetic || '',
       meaning: w.meaning || '',
+      translation: w.meaning || '',  // 前端使用translation字段
       example: w.example || '',
       audio_url: '',
       user_rating: 0,
