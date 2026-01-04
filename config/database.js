@@ -143,7 +143,7 @@ async function createTables() {
   console.log('✅ 表结构创建完成');
 }
 
-// 导入单词数据到MySQL
+// 导入单词数据到MySQL（只导入前1000个）
 async function importWordsToMySQL() {
   console.log('🔧 检查是否需要导入单词数据...');
   
@@ -166,9 +166,12 @@ async function importWordsToMySQL() {
   }
   
   const content = fs.readFileSync(wordsFile, 'utf8');
-  const words = JSON.parse(content);
+  const allWords = JSON.parse(content);
   
-  console.log(`📚 读取到 ${words.length} 个单词，开始批量导入...`);
+  // 只取前1000个单词
+  const words = allWords.slice(0, 1000);
+  
+  console.log(`📚 读取到 ${allWords.length} 个单词，只导入前 ${words.length} 个...`);
   
   // 批量插入（每次100个）
   const batchSize = 100;
@@ -197,10 +200,7 @@ async function importWordsToMySQL() {
         flatValues
       );
       imported += batch.length;
-      
-      if (imported % 1000 === 0) {
-        console.log(`  已导入 ${imported}/${words.length} 个单词...`);
-      }
+      console.log(`  已导入 ${imported}/${words.length} 个单词...`);
     } catch (e) {
       console.error('批量插入失败:', e.message);
     }
