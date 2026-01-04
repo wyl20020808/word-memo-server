@@ -147,14 +147,20 @@ async function createTables() {
 async function importWordsToMySQL() {
   console.log('🔧 检查是否需要导入单词数据...');
   
-  // 检查words表是否有数据
+  // 检查words表是否有足够数据（至少1000个才算导入完成）
   const [rows] = await pool.execute('SELECT COUNT(*) as count FROM words');
   const count = rows[0].count;
   
-  if (count > 0) {
+  if (count >= 1000) {
     console.log(`✅ 单词表已有 ${count} 条数据，跳过导入`);
     return;
   }
+  
+  console.log(`📚 单词表只有 ${count} 条数据，需要导入...`);
+  
+  // 先清空表
+  console.log('🗑️ 清空现有数据...');
+  await pool.execute('TRUNCATE TABLE words');
   
   console.log('📚 开始导入单词数据到MySQL...');
   
