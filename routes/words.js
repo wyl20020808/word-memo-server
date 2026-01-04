@@ -25,7 +25,7 @@ function findWordInList(wordStr) {
   return WORD_LIST.find(w => w.word.toLowerCase() === wordStr.toLowerCase());
 }
 
-// 从免费词典API获取单词详情
+// 从免费词典API获取单词详情（英文例句）
 async function fetchWordFromAPI(word) {
   try {
     const https = require('https');
@@ -48,20 +48,22 @@ async function fetchWordFromAPI(word) {
                   const p = entry.phonetics.find(p => p.text) || entry.phonetics[0];
                   phonetic = p.text || '';
                 }
-                // 获取例句
-                let example = '';
+                // 获取两个例句
+                const examples = [];
                 if (entry.meanings && entry.meanings.length > 0) {
                   for (const meaning of entry.meanings) {
                     if (meaning.definitions && meaning.definitions.length > 0) {
-                      const def = meaning.definitions.find(d => d.example) || meaning.definitions[0];
-                      if (def && def.example) {
-                        example = def.example;
-                        break;
+                      for (const def of meaning.definitions) {
+                        if (def.example && examples.length < 2) {
+                          examples.push(def.example);
+                        }
+                        if (examples.length >= 2) break;
                       }
                     }
+                    if (examples.length >= 2) break;
                   }
                 }
-                resolve({ phonetic, example });
+                resolve({ phonetic, example: examples.join('|||') }); // 用|||分隔两个例句
               } else {
                 resolve({ phonetic: '', example: '' });
               }
@@ -79,34 +81,85 @@ async function fetchWordFromAPI(word) {
   }
 }
 
+// 从有道API获取中文释义
+async function fetchChineseMeaning(word) {
+  try {
+    const https = require('https');
+    return new Promise((resolve) => {
+      const url = `https://dict.youdao.com/suggest?num=1&doctype=json&q=${encodeURIComponent(word)}`;
+      https.get(url, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode === 200) {
+              const json = JSON.parse(data);
+              if (json.data && json.data.entries && json.data.entries.length > 0) {
+                const entry = json.data.entries[0];
+                resolve(entry.explain || '');
+              } else {
+                resolve('');
+              }
+            } else {
+              resolve('');
+            }
+          } catch (e) {
+            resolve('');
+          }
+        });
+      }).on('error', () => resolve(''));
+    });
+  } catch (e) {
+    return '';
+  }
+}
+
+// 综合获取单词详情
+async function fetchWordDetail(word) {
+  const [engData, chMeaning] = await Promise.all([
+    fetchWordFromAPI(word),
+    fetchChineseMeaning(word)
+  ]);
+  return {
+    phonetic: engData.phonetic,
+    example: engData.example,
+    meaning: chMeaning
+  };
+}
+
 // 获取单词详情API（供前端调用获取音标和例句）- 单个
 router.get('/detail/:word', async (req, res) => {
   try {
     const word = req.params.word;
     
-    // 1. 先查数据库缓存
+    // 1. 先查数据库缓存（需要同时有音标和例句才算有效缓存）
     try {
       const [cached] = await pool.execute(
-        'SELECT phonetic, example FROM words WHERE word = ? AND (phonetic != "" OR example != "")',
+        'SELECT phonetic, example, meaning FROM words WHERE word = ? AND phonetic != "" AND example != ""',
         [word]
       );
-      if (cached.length > 0 && (cached[0].phonetic || cached[0].example)) {
+      if (cached.length > 0) {
         return res.json({
           success: true,
-          data: { word, phonetic: cached[0].phonetic || '', example: cached[0].example || '' }
+          data: { 
+            word, 
+            phonetic: cached[0].phonetic || '', 
+            example: cached[0].example || '',
+            meaning: cached[0].meaning || ''
+          }
         });
       }
     } catch (e) {}
     
-    // 2. 从API获取
-    const apiData = await fetchWordFromAPI(word);
+    // 2. 从API获取（音标、例句、中文释义）
+    const apiData = await fetchWordDetail(word);
     
     // 3. 缓存到数据库
     if (apiData.phonetic || apiData.example) {
       try {
         await pool.execute(
-          'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, "", "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example)',
-          [word, apiData.phonetic, apiData.example]
+          'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, ?, "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example), meaning = CASE WHEN VALUES(meaning) != "" THEN VALUES(meaning) ELSE meaning END',
+          [word, apiData.phonetic, apiData.example, apiData.meaning]
         );
       } catch (e) {
         console.log('Cache word detail failed:', e.message);
@@ -115,11 +168,11 @@ router.get('/detail/:word', async (req, res) => {
     
     res.json({ success: true, data: { word, ...apiData } });
   } catch (error) {
-    res.json({ success: true, data: { word: req.params.word, phonetic: '', example: '' } });
+    res.json({ success: true, data: { word: req.params.word, phonetic: '', example: '', meaning: '' } });
   }
 });
 
-// 批量获取单词详情API - 一次获取多个单词的音标和例句
+// 批量获取单词详情API - 一次获取多个单词的音标、例句和中文释义
 router.post('/details', async (req, res) => {
   try {
     const { words } = req.body;
@@ -132,21 +185,23 @@ router.post('/details', async (req, res) => {
     const results = [];
     const needFetch = [];
     
-    // 1. 先批量查数据库缓存
+    // 1. 先批量查数据库缓存（需要同时有音标和例句才算有效）
     try {
       const placeholders = wordList.map(() => '?').join(',');
       const [cached] = await pool.execute(
-        `SELECT word, phonetic, example FROM words WHERE word IN (${placeholders})`,
+        `SELECT word, phonetic, example, meaning FROM words WHERE word IN (${placeholders})`,
         wordList
       );
       
       const cachedMap = {};
       cached.forEach(row => {
-        if (row.phonetic || row.example) {
+        // 只有同时有音标和例句才算有效缓存
+        if (row.phonetic && row.example) {
           cachedMap[row.word.toLowerCase()] = {
             word: row.word,
             phonetic: row.phonetic || '',
-            example: row.example || ''
+            example: row.example || '',
+            meaning: row.meaning || ''
           };
         }
       });
@@ -165,17 +220,17 @@ router.post('/details', async (req, res) => {
       needFetch.push(...wordList);
     }
     
-    // 2. 并发从API获取缺失的
+    // 2. 并发从API获取缺失的（使用综合获取函数）
     if (needFetch.length > 0) {
       const fetchPromises = needFetch.map(async (word) => {
-        const apiData = await fetchWordFromAPI(word);
+        const apiData = await fetchWordDetail(word);
         
         // 缓存到数据库
         if (apiData.phonetic || apiData.example) {
           try {
             await pool.execute(
-              'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, "", "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example)',
-              [word, apiData.phonetic, apiData.example]
+              'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, ?, "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example), meaning = CASE WHEN VALUES(meaning) != "" THEN VALUES(meaning) ELSE meaning END',
+              [word, apiData.phonetic, apiData.example, apiData.meaning]
             );
           } catch (e) {}
         }
