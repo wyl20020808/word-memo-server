@@ -114,15 +114,59 @@ async function fetchChineseMeaning(word) {
   }
 }
 
+// 翻译例句（使用有道翻译API）
+async function translateSentence(sentence) {
+  if (!sentence) return '';
+  try {
+    const https = require('https');
+    return new Promise((resolve) => {
+      const url = `https://dict.youdao.com/webtranslate?i=${encodeURIComponent(sentence)}&doctype=json&keyfrom=fanyi.web`;
+      https.get(url, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            if (res.statusCode === 200) {
+              const json = JSON.parse(data);
+              if (json.translateResult && json.translateResult[0] && json.translateResult[0][0]) {
+                resolve(json.translateResult[0][0].tgt || '');
+              } else {
+                resolve('');
+              }
+            } else {
+              resolve('');
+            }
+          } catch (e) {
+            resolve('');
+          }
+        });
+      }).on('error', () => resolve(''));
+    });
+  } catch (e) {
+    return '';
+  }
+}
+
 // 综合获取单词详情
 async function fetchWordDetail(word) {
   const [engData, chMeaning] = await Promise.all([
     fetchWordFromAPI(word),
     fetchChineseMeaning(word)
   ]);
+  
+  // 翻译例句
+  let exampleTrans = '';
+  if (engData.example) {
+    const examples = engData.example.split('|||');
+    const transPromises = examples.map(ex => translateSentence(ex));
+    const translations = await Promise.all(transPromises);
+    exampleTrans = translations.join('|||');
+  }
+  
   return {
     phonetic: engData.phonetic,
     example: engData.example,
+    exampleTrans: exampleTrans,
     meaning: chMeaning
   };
 }
