@@ -120,7 +120,8 @@ async function translateSentence(sentence) {
   try {
     const https = require('https');
     return new Promise((resolve) => {
-      const url = `https://dict.youdao.com/webtranslate?i=${encodeURIComponent(sentence)}&doctype=json&keyfrom=fanyi.web`;
+      // 使用有道翻译的免费接口
+      const url = `https://fanyi.youdao.com/translate?&doctype=json&type=EN2ZH_CN&i=${encodeURIComponent(sentence)}`;
       https.get(url, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
@@ -128,19 +129,28 @@ async function translateSentence(sentence) {
           try {
             if (res.statusCode === 200) {
               const json = JSON.parse(data);
+              // 有道翻译返回格式: { translateResult: [[{tgt: "翻译结果"}]] }
               if (json.translateResult && json.translateResult[0] && json.translateResult[0][0]) {
-                resolve(json.translateResult[0][0].tgt || '');
+                const result = json.translateResult[0][0].tgt || '';
+                console.log('翻译结果:', sentence.substring(0, 30), '->', result.substring(0, 30));
+                resolve(result);
               } else {
+                console.log('翻译无结果:', sentence.substring(0, 30));
                 resolve('');
               }
             } else {
+              console.log('翻译请求失败:', res.statusCode);
               resolve('');
             }
           } catch (e) {
+            console.log('翻译解析错误:', e.message);
             resolve('');
           }
         });
-      }).on('error', () => resolve(''));
+      }).on('error', (e) => {
+        console.log('翻译网络错误:', e.message);
+        resolve('');
+      });
     });
   } catch (e) {
     return '';
