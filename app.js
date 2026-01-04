@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth');
 const wordRoutes = require('./routes/words');
 const userRoutes = require('./routes/user');
 const adminRoutes = require('./routes/admin');
+const aiRoutes = require('./routes/ai');
 
 const app = express();
 const PORT = process.env.PORT || 80; // 微信云托管使用80端口
@@ -21,6 +22,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/words', wordRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ai', aiRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {
