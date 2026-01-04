@@ -1,5 +1,5 @@
 /**
- * Words Router - 直接读取本地词汇文件
+ * Words Router - 从MySQL数据库读取单词
  */
 const express = require('express');
 const path = require('path');
@@ -8,22 +8,6 @@ const { pool } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
-
-// 读取本地词汇文件
-let WORD_LIST = [];
-try {
-  const wordsFile = path.join(__dirname, '../data/all-words.json');
-  const content = fs.readFileSync(wordsFile, 'utf8');
-  WORD_LIST = JSON.parse(content);
-  console.log('Loaded ' + WORD_LIST.length + ' words from local file');
-} catch (error) {
-  console.error('Failed to load words file:', error.message);
-}
-
-// 根据单词名查找本地数据
-function findWordInList(wordStr) {
-  return WORD_LIST.find(w => w.word.toLowerCase() === wordStr.toLowerCase());
-}
 
 // 从免费词典API获取单词详情（英文例句）
 async function fetchWordFromAPI(word) {
@@ -428,42 +412,57 @@ router.get('/', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     
     console.log('User ' + userId + ' requesting ' + limit + ' words');
-    console.log('Total words in list: ' + WORD_LIST.length);
     
-    // 获取用户已学习的单词
+    // 获取数据库中单词总数
+    const [totalRows] = await pool.execute('SELECT COUNT(*) as count FROM words');
+    const totalWords = totalRows[0].count;
+    console.log('Total words in database: ' + totalWords);
+    
+    // 获取用户已学习的单词ID
     const [learnedRecords] = await pool.execute(
-      'SELECT w.word FROM user_word_records uwr JOIN words w ON uwr.word_id = w.id WHERE uwr.user_id = ?',
+      'SELECT word_id FROM user_word_records WHERE user_id = ?',
       [userId]
     );
-    const learnedWords = new Set(learnedRecords.map(r => r.word.toLowerCase()));
-    console.log('User learned: ' + learnedWords.size + ' words');
+    const learnedWordIds = new Set(learnedRecords.map(r => r.word_id));
+    console.log('User learned: ' + learnedWordIds.size + ' words');
     
-    // 过滤出未学习的单词
-    const newWords = WORD_LIST.filter(w => !learnedWords.has(w.word.toLowerCase()));
-    console.log('New words available: ' + newWords.length);
+    // 从数据库获取未学习的单词
+    let query = 'SELECT id, word, phonetic, meaning, translation, example, example_trans FROM words';
+    let params = [];
     
-    if (newWords.length === 0) {
+    if (learnedWordIds.size > 0) {
+      const placeholders = Array.from(learnedWordIds).map(() => '?').join(',');
+      query += ` WHERE id NOT IN (${placeholders})`;
+      params = Array.from(learnedWordIds);
+    }
+    
+    query += ` LIMIT ${limit}`;
+    
+    const [words] = await pool.execute(query, params);
+    console.log('New words available: ' + words.length);
+    
+    if (words.length === 0) {
       return res.json({
         success: true,
         data: [],
-        total: WORD_LIST.length,
-        learned: learnedWords.size,
+        total: totalWords,
+        learned: learnedWordIds.size,
         hasMore: false,
         message: '恭喜！你已学完所有单词！'
       });
     }
     
-    // 取指定数量的新单词
-    const wordsToReturn = newWords.slice(0, limit);
-    console.log('Returning words:', wordsToReturn.slice(0, 5).map(w => w.word).join(', '));
+    console.log('Returning words:', words.slice(0, 5).map(w => w.word).join(', '));
     
     // 构建返回数据
-    const result = wordsToReturn.map(w => ({
+    const result = words.map(w => ({
+      id: w.id,
       word: w.word,
       phonetic: w.phonetic || '',
       meaning: w.meaning || '',
-      translation: w.meaning || '',  // 前端使用translation字段
+      translation: w.meaning || w.translation || '',
       example: w.example || '',
+      exampleTrans: w.example_trans || '',
       audio_url: '',
       user_rating: 0,
       learned_count: 0,
@@ -473,15 +472,15 @@ router.get('/', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: result,
-      total: WORD_LIST.length,
-      learned: learnedWords.size,
-      remaining: newWords.length,
-      hasMore: newWords.length > limit
+      total: totalWords,
+      learned: learnedWordIds.size,
+      remaining: totalWords - learnedWordIds.size,
+      hasMore: words.length >= limit
     });
     
   } catch (error) {
     console.error('Get words failed:', error);
-    res.status(500).json({ success: false, message: 'Failed to get words' });
+    res.status(500).json({ success: false, message: 'Failed to get words: ' + error.message });
   }
 });
 
