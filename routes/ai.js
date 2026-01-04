@@ -44,19 +44,26 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
     // 调用AI生成例句和翻译
     const result = await generateWordContent(word, phonetic, meaning);
 
-    // 保存到数据库
+    // 保存到数据库（使用 INSERT ... ON DUPLICATE KEY UPDATE）
     if (result.examples && result.examples.length > 0) {
       const exampleStr = result.examples.join('|||');
       const transStr = result.translations.join('|||');
 
-      await pool.execute(
-        `UPDATE words 
-         SET example = ?, example_trans = ?, updated_at = NOW() 
-         WHERE word = ?`,
-        [exampleStr, transStr, word]
-      );
+      try {
+        await pool.execute(
+          `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
+           VALUES (?, ?, ?, ?, ?, 'kaoyan') 
+           ON DUPLICATE KEY UPDATE 
+             example = VALUES(example),
+             example_trans = VALUES(example_trans),
+             updated_at = NOW()`,
+          [word, phonetic || '', exampleStr, transStr, meaning || '']
+        );
 
-      console.log('✅ AI生成内容已保存到数据库');
+        console.log('✅ AI生成内容已保存到数据库');
+      } catch (dbError) {
+        console.error('❌ 保存到数据库失败:', dbError);
+      }
     }
 
     res.json({ success: true, data: result });
