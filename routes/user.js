@@ -28,6 +28,14 @@ router.get('/stats', authenticateToken, async (req, res) => {
       [userId]
     );
     
+    // 获取今日掌握数量（评分>=4的单词）
+    const [todayMastered] = await pool.execute(`
+      SELECT COUNT(*) as count FROM user_word_records 
+      WHERE user_id = ? 
+        AND DATE(last_learned_at) = ? 
+        AND rating >= 4
+    `, [userId, today]);
+    
     // 获取最近7天学习统计
     const [weekStats] = await pool.execute(`
       SELECT date, learned_count 
@@ -40,6 +48,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
       success: true,
       data: {
         todayLearned: todayStats[0]?.learned_count || 0,
+        todayMastered: todayMastered[0]?.count || 0,
         totalLearned: totalStats[0]?.total_learned || 0,
         collectionCount: collectionCount[0]?.count || 0,
         weekStats: weekStats
