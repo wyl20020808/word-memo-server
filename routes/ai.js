@@ -477,4 +477,360 @@ She made an appointment with a specialist.|||她预约了一位专科医生。`;
   }
 }
 
+// ==================== SM-2 复习系统 API ====================
+
+const ReviewScheduler = require('../services/reviewScheduler');
+
+// 获取今日待复习单词
+router.get('/review/today', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const words = await ReviewScheduler.getTodayReviewWords(userId, limit);
+    const count = await ReviewScheduler.getTodayReviewCount(userId);
+    
+    res.json({
+      success: true,
+      data: {
+        words,
+        totalCount: count
+      }
+    });
+  } catch (error) {
+    console.error('获取复习单词失败:', error);
+    res.status(500).json({ success: false, message: '获取复习单词失败' });
+  }
+});
+
+// 获取今日待复习数量
+router.get('/review/count', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const count = await ReviewScheduler.getTodayReviewCount(userId);
+    
+    res.json({ success: true, data: { count } });
+  } catch (error) {
+    console.error('获取复习数量失败:', error);
+    res.status(500).json({ success: false, message: '获取复习数量失败' });
+  }
+});
+
+// 完成单词复习（更新SM-2数据）
+router.post('/review/complete', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { wordId, quality, errorType } = req.body;
+    
+    if (!wordId || quality === undefined) {
+      return res.status(400).json({ success: false, message: '缺少必要参数' });
+    }
+    
+    // quality: 0-5 (SM-2评分)
+    const result = await ReviewScheduler.updateMastery(userId, wordId, quality, errorType);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('更新复习记录失败:', error);
+    res.status(500).json({ success: false, message: '更新复习记录失败' });
+  }
+});
+
+// 初始化新学单词的掌握度
+router.post('/review/init', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { wordId, rating } = req.body;
+    
+    if (!wordId) {
+      return res.status(400).json({ success: false, message: '缺少单词ID' });
+    }
+    
+    // 将用户评分(1-5星)转换为SM-2评分
+    const quality = ReviewScheduler.convertRatingToQuality(rating || 3);
+    const result = await ReviewScheduler.initWordMastery(userId, wordId, quality);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('初始化掌握度失败:', error);
+    res.status(500).json({ success: false, message: '初始化掌握度失败' });
+  }
+});
+
+// 获取复习统计
+router.get('/review/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const stats = await ReviewScheduler.getReviewStats(userId);
+    
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('获取复习统计失败:', error);
+    res.status(500).json({ success: false, message: '获取复习统计失败' });
+  }
+});
+
+// ==================== AI水平诊断 API ====================
+
+const LevelDiagnoser = require('../services/levelDiagnoser');
+
+// 开始诊断 - 获取诊断题目
+router.get('/diagnosis/start', authenticateToken, async (req, res) => {
+  try {
+    const count = parseInt(req.query.count) || 20;
+    const questions = await LevelDiagnoser.generateQuestions(count);
+    
+    if (questions.length === 0) {
+      return res.status(500).json({ success: false, message: '生成题目失败' });
+    }
+    
+    res.json({ success: true, data: { questions } });
+  } catch (error) {
+    console.error('生成诊断题目失败:', error);
+    res.status(500).json({ success: false, message: '生成诊断题目失败' });
+  }
+});
+
+// 提交诊断答案
+router.post('/diagnosis/submit', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { answers } = req.body;
+    
+    if (!answers || !Array.isArray(answers)) {
+      return res.status(400).json({ success: false, message: '缺少答案数据' });
+    }
+    
+    // 计算诊断结果
+    const result = LevelDiagnoser.calculateResult(answers);
+    
+    // 保存结果
+    await LevelDiagnoser.saveResult(userId, result, answers);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('提交诊断答案失败:', error);
+    res.status(500).json({ success: false, message: '提交诊断答案失败' });
+  }
+});
+
+// 获取最近诊断结果
+router.get('/diagnosis/result', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = await LevelDiagnoser.getLatestResult(userId);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('获取诊断结果失败:', error);
+    res.status(500).json({ success: false, message: '获取诊断结果失败' });
+  }
+});
+
+// ==================== 学习计划 API ====================
+
+const PlanGenerator = require('../services/planGenerator');
+
+// 生成学习计划
+router.post('/plan/generate', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const settings = req.body;
+    
+    // 获取用户当前设置
+    const userSettings = await PlanGenerator.getUserSettings(userId);
+    const mergedSettings = { ...userSettings, ...settings };
+    
+    // 生成计划
+    const result = PlanGenerator.generatePlan(mergedSettings);
+    
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.error });
+    }
+    
+    // 保存计划
+    await PlanGenerator.savePlan(userId, result.plan);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('生成学习计划失败:', error);
+    res.status(500).json({ success: false, message: '生成学习计划失败' });
+  }
+});
+
+// 获取当前学习计划
+router.get('/plan', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const plan = await PlanGenerator.getCurrentPlan(userId);
+    
+    res.json({ success: true, data: plan });
+  } catch (error) {
+    console.error('获取学习计划失败:', error);
+    res.status(500).json({ success: false, message: '获取学习计划失败' });
+  }
+});
+
+// 获取用户设置
+router.get('/settings', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const settings = await PlanGenerator.getUserSettings(userId);
+    
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    console.error('获取用户设置失败:', error);
+    res.status(500).json({ success: false, message: '获取用户设置失败' });
+  }
+});
+
+// 更新用户设置
+router.put('/settings', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const settings = req.body;
+    
+    const result = await PlanGenerator.updateUserSettings(userId, settings);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('更新用户设置失败:', error);
+    res.status(500).json({ success: false, message: '更新用户设置失败' });
+  }
+});
+
+// ==================== 薄弱词汇 API ====================
+
+const WeakWordAnalyzer = require('../services/weakWordAnalyzer');
+
+// 获取薄弱词汇列表
+router.get('/weak-words', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const words = await WeakWordAnalyzer.getWeakWords(userId, limit);
+    const stats = await WeakWordAnalyzer.getWeakWordStats(userId);
+    
+    res.json({ success: true, data: { words, stats } });
+  } catch (error) {
+    console.error('获取薄弱词汇失败:', error);
+    res.status(500).json({ success: false, message: '获取薄弱词汇失败' });
+  }
+});
+
+// 获取薄弱词汇统计
+router.get('/weak-words/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const stats = await WeakWordAnalyzer.getWeakWordStats(userId);
+    
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error('获取薄弱词汇统计失败:', error);
+    res.status(500).json({ success: false, message: '获取薄弱词汇统计失败' });
+  }
+});
+
+// 生成强化练习
+router.get('/weak-words/practice', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const count = parseInt(req.query.count) || 10;
+    
+    const result = await WeakWordAnalyzer.generatePractice(userId, count);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('生成强化练习失败:', error);
+    res.status(500).json({ success: false, message: '生成强化练习失败' });
+  }
+});
+
+// 标记错误类型
+router.post('/weak-words/mark-error', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { wordId, errorType } = req.body;
+    
+    const result = await WeakWordAnalyzer.markErrorType(userId, wordId, errorType);
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('标记错误类型失败:', error);
+    res.status(500).json({ success: false, message: '标记错误类型失败' });
+  }
+});
+
+// ==================== 学习报告 API ====================
+
+const ReportGenerator = require('../services/reportGenerator');
+
+// 获取学习概览
+router.get('/report/overview', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const overview = await ReportGenerator.getOverview(userId);
+    
+    res.json({ success: true, data: overview });
+  } catch (error) {
+    console.error('获取学习概览失败:', error);
+    res.status(500).json({ success: false, message: '获取学习概览失败' });
+  }
+});
+
+// 获取学习趋势
+router.get('/report/trend', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const days = parseInt(req.query.days) || 7;
+    
+    const trend = await ReportGenerator.getTrend(userId, days);
+    
+    res.json({ success: true, data: trend });
+  } catch (error) {
+    console.error('获取学习趋势失败:', error);
+    res.status(500).json({ success: false, message: '获取学习趋势失败' });
+  }
+});
+
+// 获取掌握分布
+router.get('/report/distribution', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const distribution = await ReportGenerator.getMasteryDistribution(userId);
+    
+    res.json({ success: true, data: distribution });
+  } catch (error) {
+    console.error('获取掌握分布失败:', error);
+    res.status(500).json({ success: false, message: '获取掌握分布失败' });
+  }
+});
+
+// 获取AI学习建议
+router.get('/report/suggestions', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const suggestions = await ReportGenerator.generateSuggestions(userId);
+    
+    res.json({ success: true, data: suggestions });
+  } catch (error) {
+    console.error('获取学习建议失败:', error);
+    res.status(500).json({ success: false, message: '获取学习建议失败' });
+  }
+});
+
+// 获取完整学习报告
+router.get('/report', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const report = await ReportGenerator.getFullReport(userId);
+    
+    res.json({ success: true, data: report });
+  } catch (error) {
+    console.error('获取学习报告失败:', error);
+    res.status(500).json({ success: false, message: '获取学习报告失败' });
+  }
+});
+
 module.exports = router;
