@@ -143,26 +143,26 @@ async function createTables() {
   console.log('✅ 表结构创建完成');
 }
 
-// 导入单词数据到MySQL（只导入前1000个）
+// 导入单词数据到MySQL（全部导入）
 async function importWordsToMySQL() {
   console.log('🔧 检查是否需要导入单词数据...');
   
-  // 检查words表是否有足够数据（至少1000个才算导入完成）
+  // 检查words表数据量
   const [rows] = await pool.execute('SELECT COUNT(*) as count FROM words');
   const count = rows[0].count;
   
-  if (count >= 1000) {
+  if (count >= 9000) {
     console.log(`✅ 单词表已有 ${count} 条数据，跳过导入`);
     return;
   }
   
-  console.log(`📚 单词表只有 ${count} 条数据，需要导入...`);
+  console.log(`📚 单词表只有 ${count} 条数据，需要导入全部单词...`);
   
   // 先清空表
   console.log('🗑️ 清空现有数据...');
   await pool.execute('TRUNCATE TABLE words');
   
-  console.log('📚 开始导入单词数据到MySQL...');
+  console.log('📚 开始导入全部单词数据到MySQL...');
   
   // 读取单词文件
   const wordsFile = path.join(__dirname, '../data/all-words.json');
@@ -172,12 +172,9 @@ async function importWordsToMySQL() {
   }
   
   const content = fs.readFileSync(wordsFile, 'utf8');
-  const allWords = JSON.parse(content);
+  const words = JSON.parse(content);
   
-  // 只取前1000个单词
-  const words = allWords.slice(0, 1000);
-  
-  console.log(`📚 读取到 ${allWords.length} 个单词，只导入前 ${words.length} 个...`);
+  console.log(`📚 读取到 ${words.length} 个单词，开始全部导入...`);
   
   // 批量插入（每次100个）
   const batchSize = 100;
@@ -206,7 +203,10 @@ async function importWordsToMySQL() {
         flatValues
       );
       imported += batch.length;
-      console.log(`  已导入 ${imported}/${words.length} 个单词...`);
+      
+      if (imported % 1000 === 0) {
+        console.log(`  已导入 ${imported}/${words.length} 个单词...`);
+      }
     } catch (e) {
       console.error('批量插入失败:', e.message);
     }
