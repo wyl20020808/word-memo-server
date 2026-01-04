@@ -402,15 +402,16 @@ async function generateWordContent(word, phonetic, meaning) {
 1. 例句要简单易懂，适合考研水平
 2. 例句要能体现单词的常用用法
 3. 每个例句后面用 ||| 分隔符，然后写中文翻译
+4. 不要在例句前加任何序号或前缀（如"例句1:"），直接写英文句子
 
 单词信息：
 - 单词：${word}
 - 音标：${phonetic || '未知'}
 - 释义：${meaning || '未知'}
 
-请按以下格式输出（严格按照格式，不要有多余的文字）：
-例句1|||中文翻译1
-例句2|||中文翻译2`;
+请严格按以下格式输出（每行一个例句，不要有多余的文字或序号）：
+The government consulted a specialist in renewable energy.|||政府咨询了一位可再生能源专家。
+She made an appointment with a specialist.|||她预约了一位专科医生。`;
 
     console.log('🤖 调用豆包AI生成例句');
 
@@ -419,7 +420,7 @@ async function generateWordContent(word, phonetic, meaning) {
       {
         model: DOUBAO_CONFIG.model,
         messages: [
-          { role: 'system', content: '你是一个专业的英语教学助手，擅长生成简洁实用的例句。' },
+          { role: 'system', content: '你是一个专业的英语教学助手，擅长生成简洁实用的例句。请严格按照用户要求的格式输出，不要添加任何序号、前缀或额外说明。' },
           { role: 'user', content: prompt }
         ],
         max_tokens: 500,
@@ -443,7 +444,12 @@ async function generateWordContent(word, phonetic, meaning) {
     const translations = [];
 
     lines.forEach(line => {
-      const parts = line.split('|||');
+      // 清理可能的序号前缀（如 "1." "例句1:" "例句1：" 等）
+      let cleanLine = line.trim()
+        .replace(/^[\d]+[\.\、\:\：]\s*/g, '')  // 移除 "1." "1、" "1:" "1："
+        .replace(/^例句[\d]*[\.\、\:\：]?\s*/g, '');  // 移除 "例句1:" "例句1：" "例句:"
+      
+      const parts = cleanLine.split('|||');
       if (parts.length === 2) {
         examples.push(parts[0].trim());
         translations.push(parts[1].trim());
