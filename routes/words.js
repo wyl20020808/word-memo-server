@@ -167,10 +167,20 @@ async function fetchWordDetail(word) {
   // 翻译例句
   let exampleTrans = '';
   if (engData.example) {
-    const examples = engData.example.split('|||');
-    const transPromises = examples.map(ex => translateSentence(ex));
+    console.log('开始翻译例句，单词:', word);
+    const examples = engData.example.split('|||').filter(e => e.trim());
+    console.log('例句数量:', examples.length);
+    
+    const transPromises = examples.map(async (ex, idx) => {
+      console.log(`翻译例句 ${idx + 1}:`, ex.substring(0, 50));
+      const trans = await translateSentence(ex);
+      console.log(`翻译结果 ${idx + 1}:`, trans.substring(0, 50));
+      return trans;
+    });
+    
     const translations = await Promise.all(transPromises);
     exampleTrans = translations.join('|||');
+    console.log('最终翻译结果:', exampleTrans.substring(0, 100));
   }
   
   return {
