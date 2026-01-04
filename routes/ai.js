@@ -39,10 +39,23 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
   try {
     const { word, phonetic, meaning } = req.body;
 
-    console.log('🤖 AI补全单词内容:', word);
+    console.log('🤖 ========== AI补全请求 ==========');
+    console.log(`🤖 单词: ${word}`);
+    console.log(`🤖 音标: ${phonetic || '无'}`);
+    console.log(`🤖 释义: ${meaning || '无'}`);
 
     // 调用AI生成例句和翻译
     const result = await generateWordContent(word, phonetic, meaning);
+
+    console.log(`🤖 AI生成结果:`);
+    console.log(`  - 例句数量: ${result.examples?.length || 0}`);
+    console.log(`  - 翻译数量: ${result.translations?.length || 0}`);
+    if (result.examples && result.examples.length > 0) {
+      result.examples.forEach((ex, i) => {
+        console.log(`  - 例句${i + 1}: ${ex}`);
+        console.log(`  - 翻译${i + 1}: ${result.translations[i] || '无'}`);
+      });
+    }
 
     // 保存到数据库（使用 INSERT ... ON DUPLICATE KEY UPDATE）
     if (result.examples && result.examples.length > 0) {
@@ -50,7 +63,7 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
       const transStr = result.translations.join('|||');
 
       try {
-        await pool.execute(
+        const [dbResult] = await pool.execute(
           `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
            VALUES (?, ?, ?, ?, ?, 'kaoyan') 
            ON DUPLICATE KEY UPDATE 
@@ -60,12 +73,25 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
           [word, phonetic || '', exampleStr, transStr, meaning || '']
         );
 
-        console.log('✅ AI生成内容已保存到数据库');
+        console.log(`✅ AI生成内容已保存到数据库 (affectedRows: ${dbResult.affectedRows})`);
+        
+        // 验证保存结果
+        const [verify] = await pool.execute(
+          'SELECT word, example, example_trans FROM words WHERE word = ?',
+          [word]
+        );
+        if (verify && verify.length > 0) {
+          console.log(`✅ 验证保存成功:`);
+          console.log(`  - example: ${verify[0].example}`);
+          console.log(`  - example_trans: ${verify[0].example_trans}`);
+        }
+        
       } catch (dbError) {
-        console.error('❌ 保存到数据库失败:', dbError);
+        console.error('❌ 保存到数据库失败:', dbError.message);
       }
     }
 
+    console.log('🤖 ========== AI补全完成 ==========');
     res.json({ success: true, data: result });
   } catch (error) {
     console.error('❌ AI补全失败:', error);

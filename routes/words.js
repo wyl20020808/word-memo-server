@@ -255,6 +255,8 @@ router.post('/details', async (req, res) => {
       return res.json({ success: true, data: [] });
     }
     
+    console.log('📚 批量获取单词详情请求:', words.join(', '));
+    
     // 限制一次最多10个
     const wordList = words.slice(0, 10);
     const results = [];
@@ -268,10 +270,17 @@ router.post('/details', async (req, res) => {
         wordList
       );
       
+      console.log(`💾 数据库查询结果: 找到 ${cached.length} 条记录`);
+      
       const cachedMap = {};
       cached.forEach(row => {
+        const hasValidExample = row.example && row.example.trim() && row.example !== '|||';
+        const hasValidTrans = row.example_trans && row.example_trans.trim() && row.example_trans !== '|||';
+        
+        console.log(`  - ${row.word}: phonetic=${!!row.phonetic}, example=${hasValidExample}, trans=${hasValidTrans}`);
+        
         // 只有同时有音标、例句和例句翻译才算完整缓存
-        if (row.phonetic && row.example && row.example_trans) {
+        if (row.phonetic && hasValidExample && hasValidTrans) {
           cachedMap[row.word.toLowerCase()] = {
             word: row.word,
             phonetic: row.phonetic || '',
@@ -279,6 +288,7 @@ router.post('/details', async (req, res) => {
             exampleTrans: row.example_trans || '',
             meaning: row.meaning || ''
           };
+          console.log(`  ✅ ${row.word} 从数据库缓存读取（完整数据）`);
         }
       });
       
@@ -291,16 +301,23 @@ router.post('/details', async (req, res) => {
           needFetch.push(w);
         }
       });
+      
+      console.log(`📊 统计: ${results.length} 个从缓存, ${needFetch.length} 个需要API获取`);
+      
     } catch (e) {
-      console.log('Batch query cache failed:', e.message);
+      console.log('❌ 数据库查询失败:', e.message);
       // 数据库查询失败，全部需要从API获取
       needFetch.push(...wordList);
     }
     
     // 2. 并发从API获取缺失的（使用综合获取函数）
     if (needFetch.length > 0) {
+      console.log(`🌐 需要从API获取: ${needFetch.join(', ')}`);
+      
       const fetchPromises = needFetch.map(async (word) => {
         const apiData = await fetchWordDetail(word);
+        
+        console.log(`  📖 ${word} API返回: phonetic=${!!apiData.phonetic}, example=${!!apiData.example}, trans=${!!apiData.exampleTrans}`);
         
         // 缓存到数据库（包含例句翻译）
         if (apiData.phonetic || apiData.example) {
@@ -315,8 +332,9 @@ router.post('/details', async (req, res) => {
                  meaning = COALESCE(NULLIF(VALUES(meaning), ''), meaning)`,
               [word, apiData.phonetic, apiData.example, apiData.exampleTrans, apiData.meaning]
             );
+            console.log(`  💾 ${word} 已缓存到数据库`);
           } catch (e) {
-            console.log('Cache word failed:', e.message);
+            console.log(`  ❌ ${word} 缓存失败:`, e.message);
           }
         }
         
@@ -327,6 +345,7 @@ router.post('/details', async (req, res) => {
       results.push(...fetched);
     }
     
+    console.log(`✅ 批量获取完成，返回 ${results.length} 个单词`);
     res.json({ success: true, data: results });
   } catch (error) {
     console.error('Batch get details failed:', error);
