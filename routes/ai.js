@@ -2,10 +2,18 @@
  * AI助手路由
  */
 const express = require('express');
+const axios = require('axios');
 const { authenticateToken } = require('../middleware/auth');
 const { pool } = require('../config/database');
 
 const router = express.Router();
+
+// 豆包AI配置
+const DOUBAO_CONFIG = {
+  apiKey: process.env.DOUBAO_API_KEY || '52b5d7d9-1c95-4188-8bc9-613460fb3168',
+  apiUrl: process.env.DOUBAO_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+  model: process.env.DOUBAO_MODEL || 'doubao-seed-1-6-lite-251015'
+};
 
 // AI对话接口
 router.post('/chat', authenticateToken, async (req, res) => {
@@ -16,9 +24,8 @@ router.post('/chat', authenticateToken, async (req, res) => {
     console.log('AI请求:', message);
     console.log('上下文:', context);
 
-    // TODO: 这里接入真实的AI API（OpenAI、通义千问、文心一言等）
-    // 现在先用规则引擎模拟
-    const response = await handleAIRequest(message, context, userId);
+    // 调用豆包AI
+    const response = await callDoubaoAI(message, context, userId);
 
     res.json({ success: true, data: response });
   } catch (error) {
@@ -27,8 +34,113 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
-// AI请求处理（规则引擎 + 后续可接入真实AI）
-async function handleAIRequest(message, context, userId) {
+// 调用豆包AI
+async function callDoubaoAI(userMessage, context, userId) {
+  try {
+    // 构建系统提示词
+    const systemPrompt = buildSystemPrompt(context);
+    
+    // 构建对话历史
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage }
+    ];
+
+    // 如果有对话历史，添加最近的几轮
+    if (context.conversationHistory && context.conversationHistory.length > 0) {
+      const recentHistory = context.conversationHistory.slice(-4); // 最近2轮对话
+      recentHistory.forEach(msg => {
+        messages.splice(messages.length - 1, 0, {
+          role: msg.role === 'user' ? 'user' : 'assistant',
+          content: msg.content
+        });
+      });
+    }
+
+    console.log('🤖 调用豆包AI:', DOUBAO_CONFIG.model);
+    
+    // 调用豆包API
+    const response = await axios.post(
+      DOUBAO_CONFIG.apiUrl,
+      {
+        model: DOUBAO_CONFIG.model,
+        messages: messages,
+        max_tokens: 1000,
+        temperature: 0.7
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DOUBAO_CONFIG.apiKey}`
+        },
+        timeout: 30000
+      }
+    );
+
+    const aiMessage = response.data.choices[0].message.content;
+    console.log('✅ AI回复:', aiMessage);
+
+    return {
+      message: aiMessage,
+      action: null
+    };
+
+  } catch (error) {
+    console.error('❌ 豆包AI调用失败:', error.response?.data || error.message);
+    
+    // 如果AI调用失败，降级到规则引擎
+    console.log('⚠️ 降级到规则引擎');
+    return await handleAIRequestFallback(userMessage, context, userId);
+  }
+}
+
+// 构建系统提示词
+function buildSystemPrompt(context) {
+  let prompt = `你是一个专业的英语学习助手，帮助用户背单词和提高英语水平。
+
+你的职责：
+1. 分析用户的学习进度，给出个性化建议
+2. 解释单词的含义、用法、词根词缀
+3. 提供科学的记忆技巧和方法
+4. 生成例句帮助理解单词
+5. 回答用户的英语学习问题
+
+回答要求：
+- 简洁明了，重点突出
+- 使用emoji让回答更生动
+- 提供可操作的建议
+- 鼓励用户坚持学习
+
+`;
+
+  // 添加当前单词信息
+  if (context.currentWord) {
+    const word = context.currentWord;
+    prompt += `\n当前单词信息：
+- 单词：${word.word}
+- 音标：${word.phonetic || '未知'}
+- 释义：${word.apiMeaning || word.translation || word.meaning || '未知'}
+`;
+    if (word.example) {
+      prompt += `- 例句：${word.example}\n`;
+    }
+  }
+
+  // 添加学习统计
+  if (context.userStats) {
+    const stats = context.userStats;
+    prompt += `\n用户学习统计：
+- 今日学习：${stats.todayLearned || 0} 个
+- 累计学习：${stats.totalLearned || 0} 个
+- 今日目标：${stats.todayGoal || 50} 个
+`;
+  }
+
+  return prompt;
+}
+
+// 降级方案：规则引擎（AI调用失败时使用）
+async function handleAIRequestFallback(message, context, userId) {
   const msgLower = message.toLowerCase();
 
   // 1. 学习分析请求
@@ -158,19 +270,17 @@ async function provideMemoryTips(word) {
   return { message, action: null };
 }
 
-// 生成例句（简单版本，后续可接入AI生成）
+// 生成例句
 async function generateExamples(word) {
   if (!word || !word.word) {
     return { message: '请告诉我你想要哪个单词的例句？', action: null };
   }
 
-  // TODO: 接入AI生成真实例句
   const message = `正在为 "${word.word}" 生成例句...\n\n` +
     `💡 提示：你可以尝试：\n` +
     `1. 查看词典中的例句\n` +
     `2. 自己造句加深印象\n` +
-    `3. 在阅读中寻找这个词的用法\n\n` +
-    `（AI生成例句功能即将上线！）`;
+    `3. 在阅读中寻找这个词的用法`;
 
   return { message, action: { type: 'generate_examples', word: word.word } };
 }
