@@ -34,6 +34,38 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
+// AI自动补全单词内容（例句、翻译）
+router.post('/complete-word', authenticateToken, async (req, res) => {
+  try {
+    const { word, phonetic, meaning } = req.body;
+
+    console.log('🤖 AI补全单词内容:', word);
+
+    // 调用AI生成例句和翻译
+    const result = await generateWordContent(word, phonetic, meaning);
+
+    // 保存到数据库
+    if (result.examples && result.examples.length > 0) {
+      const exampleStr = result.examples.join('|||');
+      const transStr = result.translations.join('|||');
+
+      await pool.execute(
+        `UPDATE words 
+         SET example = ?, example_trans = ?, updated_at = NOW() 
+         WHERE word = ?`,
+        [exampleStr, transStr, word]
+      );
+
+      console.log('✅ AI生成内容已保存到数据库');
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ AI补全失败:', error);
+    res.status(500).json({ success: false, message: 'AI补全失败' });
+  }
+});
+
 // 调用豆包AI
 async function callDoubaoAI(userMessage, context, userId) {
   try {
@@ -283,6 +315,82 @@ async function generateExamples(word) {
     `3. 在阅读中寻找这个词的用法`;
 
   return { message, action: { type: 'generate_examples', word: word.word } };
+}
+
+// AI生成单词例句和翻译
+async function generateWordContent(word, phonetic, meaning) {
+  try {
+    const prompt = `请为英语单词 "${word}" 生成2个实用的例句，要求：
+1. 例句要简单易懂，适合考研水平
+2. 例句要能体现单词的常用用法
+3. 每个例句后面用 ||| 分隔符，然后写中文翻译
+
+单词信息：
+- 单词：${word}
+- 音标：${phonetic || '未知'}
+- 释义：${meaning || '未知'}
+
+请按以下格式输出（严格按照格式，不要有多余的文字）：
+例句1|||中文翻译1
+例句2|||中文翻译2`;
+
+    console.log('🤖 调用豆包AI生成例句');
+
+    const response = await axios.post(
+      DOUBAO_CONFIG.apiUrl,
+      {
+        model: DOUBAO_CONFIG.model,
+        messages: [
+          { role: 'system', content: '你是一个专业的英语教学助手，擅长生成简洁实用的例句。' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 500,
+        temperature: 0.7
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DOUBAO_CONFIG.apiKey}`
+        },
+        timeout: 30000
+      }
+    );
+
+    const aiResponse = response.data.choices[0].message.content.trim();
+    console.log('✅ AI返回:', aiResponse);
+
+    // 解析AI返回的内容
+    const lines = aiResponse.split('\n').filter(line => line.trim());
+    const examples = [];
+    const translations = [];
+
+    lines.forEach(line => {
+      const parts = line.split('|||');
+      if (parts.length === 2) {
+        examples.push(parts[0].trim());
+        translations.push(parts[1].trim());
+      }
+    });
+
+    // 如果解析失败，返回默认内容
+    if (examples.length === 0) {
+      return {
+        examples: [`I need to learn this ${word}.`, `This ${word} is important.`],
+        translations: [`我需要学习这个${word}。`, `这个${word}很重要。`]
+      };
+    }
+
+    return { examples, translations };
+
+  } catch (error) {
+    console.error('❌ AI生成失败:', error.response?.data || error.message);
+    
+    // 降级：返回简单的默认例句
+    return {
+      examples: [`I need to learn this ${word}.`, `This ${word} is important.`],
+      translations: [`我需要学习这个${word}。`, `这个${word}很重要。`]
+    };
+  }
 }
 
 module.exports = router;
