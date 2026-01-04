@@ -16,7 +16,10 @@ class PlanGenerator {
       exam_date, 
       target_words = 5000, 
       vocabulary_level = 'intermediate',
-      daily_goal = 50
+      daily_goal = 50,
+      daily_new_words,      // 手动设置的每日新词数
+      daily_review_words,   // 手动设置的每日复习数
+      is_manual = false     // 是否为手动设置模式
     } = settings;
 
     const today = new Date();
@@ -40,28 +43,30 @@ class PlanGenerator {
       };
     }
 
-    // 根据水平调整学习效率
-    const levelMultiplier = {
-      beginner: 0.7,    // 初学者学习效率较低
-      intermediate: 1.0, // 中级正常
-      advanced: 1.3      // 高级可以学更多
-    };
+    let dailyNewWordsResult, dailyReviewWordsResult;
 
-    const multiplier = levelMultiplier[vocabulary_level] || 1.0;
+    if (is_manual && daily_new_words) {
+      // 手动设置模式：直接使用用户设置的值
+      dailyNewWordsResult = Math.max(5, Math.min(200, daily_new_words));
+      dailyReviewWordsResult = daily_review_words ? Math.max(0, Math.min(200, daily_review_words)) : Math.round(dailyNewWordsResult * 0.5);
+    } else {
+      // AI推荐模式：根据水平和时间计算
+      const levelMultiplier = {
+        beginner: 0.7,
+        intermediate: 1.0,
+        advanced: 1.3
+      };
 
-    // 计算每日学习量
-    let dailyNewWords = Math.ceil(target_words / daysRemaining);
-    dailyNewWords = Math.round(dailyNewWords * multiplier);
-    
-    // 限制每日新词数量（20-100）
-    dailyNewWords = Math.max(20, Math.min(100, dailyNewWords));
+      const multiplier = levelMultiplier[vocabulary_level] || 1.0;
 
-    // 复习量约为新词的50%
-    const dailyReviewWords = Math.round(dailyNewWords * 0.5);
+      dailyNewWordsResult = Math.ceil(target_words / daysRemaining);
+      dailyNewWordsResult = Math.round(dailyNewWordsResult * multiplier);
+      dailyNewWordsResult = Math.max(20, Math.min(100, dailyNewWordsResult));
+      dailyReviewWordsResult = Math.round(dailyNewWordsResult * 0.5);
+    }
 
     // 预估每日学习时间（分钟）
-    // 假设每个新词2分钟，复习词0.5分钟
-    const estimatedDailyMinutes = dailyNewWords * 2 + dailyReviewWords * 0.5;
+    const estimatedDailyMinutes = dailyNewWordsResult * 2 + dailyReviewWordsResult * 0.5;
 
     // 生成阶段计划
     const phases = this.generatePhases(daysRemaining, target_words, vocabulary_level);
@@ -73,13 +78,14 @@ class PlanGenerator {
         endDate: examDate.toISOString().split('T')[0],
         totalDays: daysRemaining,
         targetWords: target_words,
-        dailyNewWords,
-        dailyReviewWords,
+        dailyNewWords: dailyNewWordsResult,
+        dailyReviewWords: dailyReviewWordsResult,
         estimatedDailyMinutes: Math.round(estimatedDailyMinutes),
         vocabularyLevel: vocabulary_level,
+        isManual: is_manual,
         phases
       },
-      suggestions: this.generateSuggestions(vocabulary_level, daysRemaining, dailyNewWords)
+      suggestions: this.generateSuggestions(vocabulary_level, daysRemaining, dailyNewWordsResult)
     };
   }
 
