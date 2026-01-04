@@ -179,31 +179,41 @@ router.get('/detail/:word', async (req, res) => {
     // 1. 先查数据库缓存（需要同时有音标和例句才算有效缓存）
     try {
       const [cached] = await pool.execute(
-        'SELECT phonetic, example, meaning FROM words WHERE word = ? AND phonetic != "" AND example != ""',
+        'SELECT phonetic, example, example_trans, meaning FROM words WHERE word = ? AND phonetic != "" AND example != ""',
         [word]
       );
-      if (cached.length > 0) {
+      if (cached.length > 0 && cached[0].example_trans) {
+        // 有完整缓存，直接返回
         return res.json({
           success: true,
           data: { 
             word, 
             phonetic: cached[0].phonetic || '', 
             example: cached[0].example || '',
+            exampleTrans: cached[0].example_trans || '',
             meaning: cached[0].meaning || ''
           }
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      console.log('Query cache failed:', e.message);
+    }
     
-    // 2. 从API获取（音标、例句、中文释义）
+    // 2. 从API获取（音标、例句、中文释义、例句翻译）
     const apiData = await fetchWordDetail(word);
     
-    // 3. 缓存到数据库
+    // 3. 缓存到数据库（包含例句翻译）
     if (apiData.phonetic || apiData.example) {
       try {
         await pool.execute(
-          'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, ?, "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example), meaning = CASE WHEN VALUES(meaning) != "" THEN VALUES(meaning) ELSE meaning END',
-          [word, apiData.phonetic, apiData.example, apiData.meaning]
+          `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
+           VALUES (?, ?, ?, ?, ?, "kaoyan") 
+           ON DUPLICATE KEY UPDATE 
+             phonetic = COALESCE(NULLIF(VALUES(phonetic), ''), phonetic),
+             example = COALESCE(NULLIF(VALUES(example), ''), example),
+             example_trans = COALESCE(NULLIF(VALUES(example_trans), ''), example_trans),
+             meaning = COALESCE(NULLIF(VALUES(meaning), ''), meaning)`,
+          [word, apiData.phonetic, apiData.example, apiData.exampleTrans, apiData.meaning]
         );
       } catch (e) {
         console.log('Cache word detail failed:', e.message);
@@ -212,7 +222,8 @@ router.get('/detail/:word', async (req, res) => {
     
     res.json({ success: true, data: { word, ...apiData } });
   } catch (error) {
-    res.json({ success: true, data: { word: req.params.word, phonetic: '', example: '', meaning: '' } });
+    console.error('Get word detail error:', error);
+    res.json({ success: true, data: { word: req.params.word, phonetic: '', example: '', exampleTrans: '', meaning: '' } });
   }
 });
 
@@ -229,28 +240,29 @@ router.post('/details', async (req, res) => {
     const results = [];
     const needFetch = [];
     
-    // 1. 先批量查数据库缓存（需要同时有音标和例句才算有效）
+    // 1. 先批量查数据库缓存（需要同时有音标、例句和例句翻译才算完整缓存）
     try {
       const placeholders = wordList.map(() => '?').join(',');
       const [cached] = await pool.execute(
-        `SELECT word, phonetic, example, meaning FROM words WHERE word IN (${placeholders})`,
+        `SELECT word, phonetic, example, example_trans, meaning FROM words WHERE word IN (${placeholders})`,
         wordList
       );
       
       const cachedMap = {};
       cached.forEach(row => {
-        // 只有同时有音标和例句才算有效缓存
-        if (row.phonetic && row.example) {
+        // 只有同时有音标、例句和例句翻译才算完整缓存
+        if (row.phonetic && row.example && row.example_trans) {
           cachedMap[row.word.toLowerCase()] = {
             word: row.word,
             phonetic: row.phonetic || '',
             example: row.example || '',
+            exampleTrans: row.example_trans || '',
             meaning: row.meaning || ''
           };
         }
       });
       
-      // 分类：有缓存的和需要获取的
+      // 分类：有完整缓存的和需要获取的
       wordList.forEach(w => {
         const key = w.toLowerCase();
         if (cachedMap[key]) {
@@ -260,6 +272,7 @@ router.post('/details', async (req, res) => {
         }
       });
     } catch (e) {
+      console.log('Batch query cache failed:', e.message);
       // 数据库查询失败，全部需要从API获取
       needFetch.push(...wordList);
     }
@@ -269,14 +282,22 @@ router.post('/details', async (req, res) => {
       const fetchPromises = needFetch.map(async (word) => {
         const apiData = await fetchWordDetail(word);
         
-        // 缓存到数据库
+        // 缓存到数据库（包含例句翻译）
         if (apiData.phonetic || apiData.example) {
           try {
             await pool.execute(
-              'INSERT INTO words (word, phonetic, example, meaning, category) VALUES (?, ?, ?, ?, "kaoyan") ON DUPLICATE KEY UPDATE phonetic = VALUES(phonetic), example = VALUES(example), meaning = CASE WHEN VALUES(meaning) != "" THEN VALUES(meaning) ELSE meaning END',
-              [word, apiData.phonetic, apiData.example, apiData.meaning]
+              `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
+               VALUES (?, ?, ?, ?, ?, "kaoyan") 
+               ON DUPLICATE KEY UPDATE 
+                 phonetic = COALESCE(NULLIF(VALUES(phonetic), ''), phonetic),
+                 example = COALESCE(NULLIF(VALUES(example), ''), example),
+                 example_trans = COALESCE(NULLIF(VALUES(example_trans), ''), example_trans),
+                 meaning = COALESCE(NULLIF(VALUES(meaning), ''), meaning)`,
+              [word, apiData.phonetic, apiData.example, apiData.exampleTrans, apiData.meaning]
             );
-          } catch (e) {}
+          } catch (e) {
+            console.log('Cache word failed:', e.message);
+          }
         }
         
         return { word, ...apiData };

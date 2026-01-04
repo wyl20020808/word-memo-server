@@ -18,12 +18,15 @@ CREATE TABLE IF NOT EXISTS words (
   id INT PRIMARY KEY AUTO_INCREMENT,
   word VARCHAR(100) NOT NULL COMMENT '单词',
   phonetic VARCHAR(200) DEFAULT '' COMMENT '音标',
-  translation TEXT NOT NULL COMMENT '翻译',
-  example TEXT COMMENT '例句',
+  translation TEXT NOT NULL COMMENT '翻译（简短）',
+  meaning TEXT COMMENT '详细释义（从API获取）',
+  example TEXT COMMENT '例句（多个用|||分隔）',
+  example_trans TEXT COMMENT '例句翻译（多个用|||分隔）',
   category VARCHAR(50) DEFAULT '四六级' COMMENT '分类',
   difficulty INT DEFAULT 1 COMMENT '难度等级 1-5',
   frequency INT DEFAULT 0 COMMENT '出现频率',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_word (word),
   INDEX idx_category (category)
 );
