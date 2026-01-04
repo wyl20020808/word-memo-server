@@ -62,7 +62,29 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
       const exampleStr = result.examples.join('|||');
       const transStr = result.translations.join('|||');
 
+      console.log(`💾 准备保存到数据库:`);
+      console.log(`  - word: ${word}`);
+      console.log(`  - phonetic: ${phonetic || '空'}`);
+      console.log(`  - example: ${exampleStr}`);
+      console.log(`  - example_trans: ${transStr}`);
+      console.log(`  - meaning: ${meaning || '空'}`);
+
       try {
+        // 先检查单词是否已存在
+        const [existing] = await pool.execute(
+          'SELECT word, phonetic, example, example_trans FROM words WHERE word = ?',
+          [word]
+        );
+        
+        if (existing && existing.length > 0) {
+          console.log(`💾 单词已存在，当前数据:`);
+          console.log(`  - phonetic: ${existing[0].phonetic || '空'}`);
+          console.log(`  - example: ${existing[0].example || '空'}`);
+          console.log(`  - example_trans: ${existing[0].example_trans || '空'}`);
+        } else {
+          console.log(`💾 单词不存在，将插入新记录`);
+        }
+        
         const [dbResult] = await pool.execute(
           `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
            VALUES (?, ?, ?, ?, ?, 'kaoyan') 
@@ -73,22 +95,45 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
           [word, phonetic || '', exampleStr, transStr, meaning || '']
         );
 
-        console.log(`✅ AI生成内容已保存到数据库 (affectedRows: ${dbResult.affectedRows})`);
+        console.log(`✅ 数据库操作完成:`);
+        console.log(`  - affectedRows: ${dbResult.affectedRows}`);
+        console.log(`  - insertId: ${dbResult.insertId}`);
+        console.log(`  - changedRows: ${dbResult.changedRows}`);
         
         // 验证保存结果
         const [verify] = await pool.execute(
-          'SELECT word, example, example_trans FROM words WHERE word = ?',
+          'SELECT word, phonetic, example, example_trans FROM words WHERE word = ?',
           [word]
         );
+        
         if (verify && verify.length > 0) {
-          console.log(`✅ 验证保存成功:`);
-          console.log(`  - example: ${verify[0].example}`);
-          console.log(`  - example_trans: ${verify[0].example_trans}`);
+          console.log(`✅ 验证保存成功，当前数据库数据:`);
+          console.log(`  - phonetic: ${verify[0].phonetic || '空'}`);
+          console.log(`  - example: ${verify[0].example || '空'}`);
+          console.log(`  - example_trans: ${verify[0].example_trans || '空'}`);
+          
+          // 检查是否真的保存成功
+          const savedExample = verify[0].example || '';
+          const savedTrans = verify[0].example_trans || '';
+          if (savedExample === exampleStr && savedTrans === transStr) {
+            console.log(`✅✅ 数据完全匹配，保存成功！`);
+          } else {
+            console.log(`⚠️ 数据不匹配！`);
+            console.log(`  期望 example: ${exampleStr}`);
+            console.log(`  实际 example: ${savedExample}`);
+            console.log(`  期望 trans: ${transStr}`);
+            console.log(`  实际 trans: ${savedTrans}`);
+          }
+        } else {
+          console.log(`❌ 验证失败：数据库中找不到该单词`);
         }
         
       } catch (dbError) {
-        console.error('❌ 保存到数据库失败:', dbError.message);
+        console.error('❌ 数据库操作失败:', dbError.message);
+        console.error('❌ 错误详情:', dbError);
       }
+    } else {
+      console.log(`⚠️ AI未生成有效例句，跳过保存`);
     }
 
     console.log('🤖 ========== AI补全完成 ==========');

@@ -262,7 +262,7 @@ router.post('/details', async (req, res) => {
     const results = [];
     const needFetch = [];
     
-    // 1. 先批量查数据库缓存（需要同时有音标、例句和例句翻译才算完整缓存）
+    // 1. 先批量查数据库缓存
     try {
       const placeholders = wordList.map(() => '?').join(',');
       const [cached] = await pool.execute(
@@ -277,10 +277,15 @@ router.post('/details', async (req, res) => {
         const hasValidExample = row.example && row.example.trim() && row.example !== '|||';
         const hasValidTrans = row.example_trans && row.example_trans.trim() && row.example_trans !== '|||';
         
-        console.log(`  - ${row.word}: phonetic=${!!row.phonetic}, example=${hasValidExample}, trans=${hasValidTrans}`);
+        console.log(`  📝 ${row.word}:`);
+        console.log(`     - phonetic: ${row.phonetic || '空'}`);
+        console.log(`     - example: ${row.example || '空'}`);
+        console.log(`     - example_trans: ${row.example_trans || '空'}`);
+        console.log(`     - hasValidExample: ${hasValidExample}`);
+        console.log(`     - hasValidTrans: ${hasValidTrans}`);
         
-        // 只有同时有音标、例句和例句翻译才算完整缓存
-        if (row.phonetic && hasValidExample && hasValidTrans) {
+        // 只要有音标或例句就算有缓存（不要求必须全部有）
+        if (row.phonetic || hasValidExample) {
           cachedMap[row.word.toLowerCase()] = {
             word: row.word,
             phonetic: row.phonetic || '',
@@ -288,11 +293,19 @@ router.post('/details', async (req, res) => {
             exampleTrans: row.example_trans || '',
             meaning: row.meaning || ''
           };
-          console.log(`  ✅ ${row.word} 从数据库缓存读取（完整数据）`);
+          
+          // 判断是否完整
+          if (row.phonetic && hasValidExample && hasValidTrans) {
+            console.log(`  ✅ ${row.word} 从数据库读取（完整数据）`);
+          } else {
+            console.log(`  ⚠️ ${row.word} 从数据库读取（部分数据，可能需要补全）`);
+          }
+        } else {
+          console.log(`  ❌ ${row.word} 数据库无有效数据`);
         }
       });
       
-      // 分类：有完整缓存的和需要获取的
+      // 分类：有缓存的和需要获取的
       wordList.forEach(w => {
         const key = w.toLowerCase();
         if (cachedMap[key]) {
@@ -303,6 +316,12 @@ router.post('/details', async (req, res) => {
       });
       
       console.log(`📊 统计: ${results.length} 个从缓存, ${needFetch.length} 个需要API获取`);
+      if (results.length > 0) {
+        console.log(`📊 缓存单词: ${results.map(r => r.word).join(', ')}`);
+      }
+      if (needFetch.length > 0) {
+        console.log(`📊 需要API: ${needFetch.join(', ')}`);
+      }
       
     } catch (e) {
       console.log('❌ 数据库查询失败:', e.message);
