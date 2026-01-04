@@ -357,20 +357,9 @@ router.post('/details', async (req, res) => {
 });
 
 // 获取单词详情（优先本地文件，然后数据库）
+// 获取单词详情（从数据库查找）
 async function getWordData(wordStr) {
-  // 1. 先从本地文件查找
-  const localWord = findWordInList(wordStr);
-  if (localWord) {
-    return {
-      word: localWord.word,
-      phonetic: localWord.phonetic || '',
-      meaning: localWord.meaning || '',
-      example: localWord.example || '',
-      audio_url: ''
-    };
-  }
-  
-  // 2. 从数据库查找
+  // 从数据库查找
   try {
     const [cached] = await pool.execute('SELECT * FROM words WHERE word = ?', [wordStr]);
     if (cached.length > 0) {
@@ -380,7 +369,7 @@ async function getWordData(wordStr) {
     console.log('DB query failed:', e.message);
   }
   
-  // 3. 返回基本信息
+  // 返回基本信息
   return {
     word: wordStr,
     phonetic: '',
