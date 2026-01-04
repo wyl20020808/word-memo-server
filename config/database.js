@@ -184,37 +184,86 @@ async function createTables() {
 
 // 创建数据库连接池
 async function createPool() {
-  if (MYSQL_ADDRESS || process.env.DATABASE_URL || (process.env.DB_HOST && process.env.DB_PASSWORD)) {
+  // 重新读取环境变量（确保在运行时读取）
+  const mysqlAddr = process.env.MYSQL_ADDRESS;
+  const mysqlUser = process.env.MYSQL_USERNAME || process.env.DB_USER || 'root';
+  const mysqlPass = process.env.MYSQL_PASSWORD || process.env.DB_PASSWORD;
+  const mysqlDb = process.env.MYSQL_DATABASE || process.env.DB_NAME || 'word_memo';
+  
+  console.log('🔍 createPool - 环境变量检查:');
+  console.log('  - MYSQL_ADDRESS:', mysqlAddr || '未设置');
+  console.log('  - MYSQL_USERNAME:', mysqlUser);
+  console.log('  - MYSQL_PASSWORD:', mysqlPass ? '已设置' : '未设置');
+  console.log('  - MYSQL_DATABASE:', mysqlDb);
+  
+  if (mysqlAddr && mysqlPass) {
     console.log('✅ 检测到MySQL配置，使用MySQL数据库');
     
-    // 先初始化数据库
-    await initDatabase();
+    // 解析地址
+    const parts = mysqlAddr.split(':');
+    const host = parts[0];
+    const port = parts[1] ? parseInt(parts[1]) : 3306;
     
-    // 创建连接池
-    pool = mysql.createPool({
-      host: mysqlHost,
-      user: dbUser,
-      password: dbPassword,
-      database: dbName,
-      port: mysqlPort,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      connectTimeout: 60000,
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
-    });
+    console.log('  - 解析后Host:', host);
+    console.log('  - 解析后Port:', port);
     
-    return true;
+    try {
+      // 先初始化数据库（创建数据库）
+      const tempPool = mysql.createPool({
+        host: host,
+        user: mysqlUser,
+        password: mysqlPass,
+        port: port,
+        waitForConnections: true,
+        connectionLimit: 2,
+        connectTimeout: 30000
+      });
+      
+      console.log('🔧 正在创建数据库...');
+      await tempPool.execute(`CREATE DATABASE IF NOT EXISTS \`${mysqlDb}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+      console.log('✅ 数据库创建/确认成功:', mysqlDb);
+      await tempPool.end();
+      
+      // 创建正式连接池
+      pool = mysql.createPool({
+        host: host,
+        user: mysqlUser,
+        password: mysqlPass,
+        database: mysqlDb,
+        port: port,
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        connectTimeout: 60000
+      });
+      
+      // 测试连接
+      const conn = await pool.getConnection();
+      console.log('✅ MySQL连接池创建成功');
+      conn.release();
+      
+      useMemoryDB = false;
+      return true;
+      
+    } catch (error) {
+      console.error('❌ MySQL连接失败:', error.message);
+      console.log('🔄 降级到内存数据库模式');
+      memoryDB = new MemoryDB();
+      useMemoryDB = true;
+      return true;
+    }
   } else {
-    console.log('⚠️  未检测到数据库配置，使用内存数据库模式');
+    console.log('⚠️  未检测到完整的数据库配置');
+    console.log('  需要: MYSQL_ADDRESS 和 MYSQL_PASSWORD');
+    console.log('🔄 使用内存数据库模式');
     memoryDB = new MemoryDB();
     useMemoryDB = true;
     return true;
   }
 }
 
-// 立即创建连接池
-createPool().catch(console.error);
+// 不要立即执行，等待 testConnection 调用
+// createPool().catch(console.error);
 
 // 统一的数据库接口
 const db = {
@@ -240,6 +289,9 @@ const db = {
 
 // 测试数据库连接
 async function testConnection() {
+  // 先创建连接池
+  await createPool();
+  
   try {
     if (useMemoryDB) {
       console.log('✅ 内存数据库连接成功');
