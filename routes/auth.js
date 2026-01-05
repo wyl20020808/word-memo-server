@@ -64,54 +64,49 @@ router.post('/login', async (req, res) => {
     
     let user;
     if (users.length === 0) {
-      // 创建新用户
+      // 创建新用户 - 使用基础字段，兼容旧表结构
       const nickname = userInfo?.nickName || '微信用户';
       const avatarUrl = userInfo?.avatarUrl || '';
       
-      const [result] = await pool.execute(
-        'INSERT INTO users (openid, nickname, avatar_url, session_key, created_at) VALUES (?, ?, ?, ?, NOW())',
-        [openid, nickname, avatarUrl, sessionKey || '']
-      );
+      try {
+        // 尝试使用完整字段
+        const [result] = await pool.execute(
+          'INSERT INTO users (openid, nickname, avatar_url) VALUES (?, ?, ?)',
+          [openid, nickname, avatarUrl]
+        );
+        
+        user = {
+          id: result.insertId,
+          openid,
+          nickname,
+          avatar_url: avatarUrl
+        };
+      } catch (insertError) {
+        console.error('插入用户失败:', insertError.message);
+        throw insertError;
+      }
       
-      user = {
-        id: result.insertId,
-        openid,
-        nickname,
-        avatar_url: avatarUrl
-      };
       console.log('✅ 创建新用户成功:', user.id);
     } else {
       user = users[0];
       
-      // 更新用户信息和session_key
-      const updateFields = [];
-      const updateValues = [];
+      // 更新用户信息
+      try {
+        if (userInfo?.nickName || userInfo?.avatarUrl) {
+          await pool.execute(
+            'UPDATE users SET nickname = ?, avatar_url = ? WHERE id = ?',
+            [userInfo?.nickName || user.nickname, userInfo?.avatarUrl || user.avatar_url, user.id]
+          );
+          
+          // 更新本地user对象
+          if (userInfo?.nickName) user.nickname = userInfo.nickName;
+          if (userInfo?.avatarUrl) user.avatar_url = userInfo.avatarUrl;
+        }
+      } catch (updateError) {
+        console.error('更新用户信息失败:', updateError.message);
+        // 不抛出错误，继续登录流程
+      }
       
-      if (userInfo?.nickName) {
-        updateFields.push('nickname = ?');
-        updateValues.push(userInfo.nickName);
-      }
-      if (userInfo?.avatarUrl) {
-        updateFields.push('avatar_url = ?');
-        updateValues.push(userInfo.avatarUrl);
-      }
-      if (sessionKey) {
-        updateFields.push('session_key = ?');
-        updateValues.push(sessionKey);
-      }
-      updateFields.push('last_login_at = NOW()');
-      
-      if (updateFields.length > 0) {
-        updateValues.push(user.id);
-        await pool.execute(
-          `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`,
-          updateValues
-        );
-        
-        // 更新本地user对象
-        if (userInfo?.nickName) user.nickname = userInfo.nickName;
-        if (userInfo?.avatarUrl) user.avatar_url = userInfo.avatarUrl;
-      }
       console.log('✅ 用户已存在，已更新信息:', user.id);
     }
     
