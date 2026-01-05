@@ -1,7 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
-const { generateAISummary } = require('../services/summaryGenerator');
+const { generateAISummary, extractStudyData } = require('../services/summaryGenerator');
 
 const router = express.Router();
 
@@ -259,12 +259,40 @@ router.get('/daily', authenticateToken, async (req, res) => {
   }
 });
 
-// 生成AI总结
+// 生成AI总结（支持从自然语言提取数据）
 router.post('/daily/generate', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { userNotes, mood, tomorrowPlan } = req.body;
     const today = new Date().toISOString().split('T')[0];
+
+    // 先尝试从用户输入中提取学习数据
+    let extractedData = null;
+    if (userNotes && userNotes.length >= 10) {
+      extractedData = await extractStudyData(userNotes);
+      
+      // 如果提取到数据，保存到数据库
+      if (extractedData) {
+        for (const subject of ['math', 'politics', 'major']) {
+          const data = extractedData[subject];
+          if (data && (data.time || data.exercises || data.notes)) {
+            await pool.execute(`
+              INSERT INTO study_progress (user_id, subject, date, study_time, exercises_done, chapters_done, notes_count)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE 
+                study_time = study_time + ?,
+                exercises_done = exercises_done + ?,
+                chapters_done = COALESCE(?, chapters_done),
+                notes_count = notes_count + ?
+            `, [
+              userId, subject, today, 
+              data.time || 0, data.exercises || 0, data.chapters || '', data.notes || 0,
+              data.time || 0, data.exercises || 0, data.chapters || null, data.notes || 0
+            ]);
+          }
+        }
+      }
+    }
 
     // 收集今日所有学习数据
     const [progress] = await pool.execute(`
@@ -285,7 +313,8 @@ router.post('/daily/generate', authenticateToken, async (req, res) => {
       english: englishStats[0] || {},
       words: wordStats[0]?.count || 0,
       userNotes,
-      mood
+      mood,
+      extractedData
     };
 
     // 调用AI生成总结
@@ -311,7 +340,9 @@ router.post('/daily/generate', authenticateToken, async (req, res) => {
       data: {
         autoSummary: aiResult.summary,
         suggestions: aiResult.suggestions,
-        totalStudyTime: totalTime
+        encouragement: aiResult.encouragement,
+        totalStudyTime: totalTime,
+        extractedData: aiResult.extractedData // 返回提取的数据让前端展示
       }
     });
   } catch (error) {

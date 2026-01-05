@@ -86,7 +86,7 @@ async function initEnglishTables() {
 
 // 插入示例数据
 async function insertSampleData() {
-  // 插入示例文章
+  // 插入更多示例文章
   const articles = [
     {
       title: 'The Power of Habit',
@@ -114,6 +114,69 @@ async function insertSampleData() {
       preview: 'The digital revolution has fundamentally transformed...',
       content_en: 'The digital revolution has fundamentally transformed how we live, work, and communicate. In just a few decades, technology has reshaped virtually every aspect of human society.\n\nArtificial intelligence and machine learning are now capable of performing tasks that were once thought to be exclusively human domains. From medical diagnosis to creative writing, AI systems are demonstrating remarkable capabilities.\n\nYet this technological progress raises important questions about privacy, employment, and the nature of human identity. As we navigate this new landscape, we must ensure that technology serves humanity rather than the other way around.',
       content_zh: '数字革命从根本上改变了我们的生活、工作和交流方式。在短短几十年内，技术几乎重塑了人类社会的方方面面。\n\n人工智能和机器学习现在能够执行曾经被认为是人类专属领域的任务。从医学诊断到创意写作，人工智能系统正在展示出非凡的能力。\n\n然而，这种技术进步引发了关于隐私、就业和人类身份本质的重要问题。在我们探索这个新领域时，我们必须确保技术服务于人类，而不是相反。'
+    },
+    {
+      title: 'The Art of Learning',
+      difficulty: 'easy',
+      word_count: 180,
+      read_time: 4,
+      preview: 'Learning is a lifelong journey that shapes who we are...',
+      content_en: 'Learning is a lifelong journey that shapes who we are. The most successful people are those who never stop learning, constantly seeking new knowledge and skills.\n\nEffective learning requires more than just reading or listening. It involves active engagement with the material, asking questions, and making connections to what you already know.\n\nResearch shows that spaced repetition and active recall are among the most powerful learning techniques. By reviewing material at increasing intervals and testing yourself regularly, you can dramatically improve retention.',
+      content_zh: '学习是塑造我们的终身旅程。最成功的人是那些从不停止学习、不断寻求新知识和技能的人。\n\n有效的学习不仅仅是阅读或听讲。它涉及与材料的积极互动、提出问题，以及与你已知的知识建立联系。\n\n研究表明，间隔重复和主动回忆是最强大的学习技巧之一。通过以递增的间隔复习材料并定期测试自己，你可以显著提高记忆力。'
+    },
+    {
+      title: 'Globalization and Culture',
+      difficulty: 'medium',
+      word_count: 220,
+      read_time: 5,
+      preview: 'Globalization has brought the world closer together...',
+      content_en: 'Globalization has brought the world closer together than ever before. People, goods, and ideas now flow across borders with unprecedented ease, creating both opportunities and challenges.\n\nOn one hand, globalization has lifted millions out of poverty and given people access to products and information from around the world. On the other hand, it has raised concerns about cultural homogenization and the loss of local traditions.\n\nThe key is to find a balance that allows us to benefit from global connections while preserving the diversity that makes our world rich and interesting.',
+      content_zh: '全球化使世界比以往任何时候都更加紧密。人员、商品和思想现在以前所未有的便利跨越国界流动，创造了机遇和挑战。\n\n一方面，全球化使数百万人摆脱了贫困，让人们能够获得来自世界各地的产品和信息。另一方面，它引发了对文化同质化和地方传统丧失的担忧。\n\n关键是找到一种平衡，使我们能够从全球联系中受益，同时保持使我们的世界丰富多彩的多样性。'
+    },
+    {
+      title: 'The Science of Sleep',
+      difficulty: 'medium',
+      word_count: 200,
+      read_time: 5,
+      preview: 'Sleep is essential for our physical and mental health...',
+      content_en: 'Sleep is essential for our physical and mental health. During sleep, our bodies repair tissues, consolidate memories, and regulate hormones that control growth and appetite.\n\nMost adults need seven to nine hours of sleep per night, yet many people consistently get less. Chronic sleep deprivation has been linked to obesity, heart disease, diabetes, and depression.\n\nTo improve sleep quality, experts recommend maintaining a consistent sleep schedule, creating a dark and quiet sleeping environment, and avoiding screens before bedtime.',
+      content_zh: '睡眠对我们的身心健康至关重要。在睡眠期间，我们的身体修复组织、巩固记忆，并调节控制生长和食欲的激素。\n\n大多数成年人每晚需要七到九小时的睡眠，但许多人持续睡眠不足。长期睡眠不足与肥胖、心脏病、糖尿病和抑郁症有关。\n\n为了提高睡眠质量，专家建议保持一致的睡眠时间表，创造黑暗安静的睡眠环境，并避免在睡前使用屏幕。'
+    },
+    {
+      title: 'Critical Thinking in the Information Age',
+      difficulty: 'hard',
+      word_count: 280,
+      read_time: 7,
+      preview: 'In an era of information overload, critical thinking has become...',
+      content_en: 'In an era of information overload, critical thinking has become more important than ever. We are constantly bombarded with news, opinions, and claims from countless sources, making it increasingly difficult to separate fact from fiction.\n\nCritical thinking involves questioning assumptions, evaluating evidence, and considering alternative perspectives before forming conclusions. It requires intellectual humility—the willingness to admit that we might be wrong and to change our minds when presented with compelling evidence.\n\nDeveloping critical thinking skills takes practice. Start by questioning the sources of information you encounter, looking for potential biases, and seeking out diverse viewpoints on important issues.',
+      content_zh: '在信息过载的时代，批判性思维变得比以往任何时候都更加重要。我们不断受到来自无数来源的新闻、观点和声明的轰炸，使得区分事实与虚构变得越来越困难。\n\n批判性思维涉及在形成结论之前质疑假设、评估证据和考虑替代观点。它需要智识上的谦逊——愿意承认我们可能是错的，并在面对令人信服的证据时改变我们的想法。\n\n培养批判性思维技能需要练习。首先质疑你遇到的信息来源，寻找潜在的偏见，并在重要问题上寻求多样化的观点。'
+    },
+    {
+      title: 'The Future of Work',
+      difficulty: 'hard',
+      word_count: 260,
+      read_time: 6,
+      preview: 'The workplace is undergoing a profound transformation...',
+      content_en: 'The workplace is undergoing a profound transformation driven by technological advances, changing demographics, and evolving social values. Remote work, once a rare perk, has become mainstream, fundamentally altering how and where we work.\n\nAutomation and artificial intelligence are reshaping job markets, eliminating some roles while creating others. The skills that will be most valuable in the future are those that machines cannot easily replicate: creativity, emotional intelligence, and complex problem-solving.\n\nTo thrive in this new landscape, workers must embrace lifelong learning and be prepared to adapt to changing circumstances. The most successful careers will likely involve multiple transitions and continuous skill development.',
+      content_zh: '在技术进步、人口结构变化和社会价值观演变的推动下，工作场所正在经历深刻的转变。远程工作曾经是一种罕见的福利，现在已成为主流，从根本上改变了我们工作的方式和地点。\n\n自动化和人工智能正在重塑就业市场，消除一些角色的同时创造其他角色。未来最有价值的技能是机器无法轻易复制的：创造力、情商和复杂问题解决能力。\n\n要在这个新环境中蓬勃发展，工作者必须拥抱终身学习，并准备好适应不断变化的环境。最成功的职业生涯可能涉及多次转型和持续的技能发展。'
+    },
+    {
+      title: 'Healthy Eating Made Simple',
+      difficulty: 'easy',
+      word_count: 160,
+      read_time: 3,
+      preview: 'Good nutrition does not have to be complicated...',
+      content_en: 'Good nutrition does not have to be complicated. The basic principles of healthy eating are simple: eat plenty of fruits and vegetables, choose whole grains over refined ones, and limit processed foods and added sugars.\n\nPortion control is also important. Even healthy foods can contribute to weight gain if eaten in excess. Using smaller plates and paying attention to hunger cues can help manage portion sizes.\n\nRemember that no single food is magic or poison. A balanced diet that includes a variety of foods is the key to good health.',
+      content_zh: '良好的营养不必复杂。健康饮食的基本原则很简单：多吃水果和蔬菜，选择全谷物而不是精制谷物，限制加工食品和添加糖。\n\n份量控制也很重要。即使是健康食品，如果吃得过多也会导致体重增加。使用较小的盘子并注意饥饿信号可以帮助控制份量。\n\n记住，没有任何一种食物是神奇的或有毒的。包含各种食物的均衡饮食是健康的关键。'
+    },
+    {
+      title: 'The Psychology of Motivation',
+      difficulty: 'medium',
+      word_count: 210,
+      read_time: 5,
+      preview: 'Understanding what motivates us can help us achieve our goals...',
+      content_en: 'Understanding what motivates us can help us achieve our goals more effectively. Psychologists distinguish between intrinsic motivation, which comes from within, and extrinsic motivation, which comes from external rewards or pressures.\n\nResearch suggests that intrinsic motivation leads to better performance and greater satisfaction. When we do something because we find it interesting or meaningful, we are more likely to persist in the face of challenges.\n\nTo boost motivation, set clear and achievable goals, break large tasks into smaller steps, and celebrate progress along the way. Surrounding yourself with supportive people can also make a significant difference.',
+      content_zh: '理解是什么激励我们可以帮助我们更有效地实现目标。心理学家区分内在动机（来自内心）和外在动机（来自外部奖励或压力）。\n\n研究表明，内在动机会带来更好的表现和更大的满足感。当我们因为觉得某事有趣或有意义而去做时，我们更有可能在面对挑战时坚持下去。\n\n为了提高动力，设定清晰可实现的目标，将大任务分解为小步骤，并在过程中庆祝进步。让自己周围都是支持你的人也会产生重大影响。'
     }
   ];
 
@@ -124,7 +187,7 @@ async function insertSampleData() {
     );
   }
 
-  // 插入示例翻译句子
+  // 插入示例翻译句子（更多）
   const sentences = [
     {
       english: 'The fact that technology has become so deeply embedded in our daily lives raises important questions about privacy, autonomy, and the nature of human connection.',
@@ -154,6 +217,48 @@ async function insertSampleData() {
       english: 'Only when we recognize that our individual actions have collective consequences can we begin to address the environmental challenges that threaten our planet.',
       chinese: '只有当我们认识到我们的个人行为会产生集体后果时，我们才能开始应对威胁我们星球的环境挑战。',
       analysis: '倒装句：Only when...can we...。only+状语从句置于句首时，主句要部分倒装。',
+      difficulty: 'hard'
+    },
+    {
+      english: 'Had it not been for the timely intervention of the government, the economic crisis would have resulted in far more severe consequences.',
+      chinese: '如果不是政府的及时干预，经济危机将会导致更加严重的后果。',
+      analysis: '虚拟条件句的倒装：Had it not been for = If it had not been for。表示与过去事实相反的假设。',
+      difficulty: 'hard'
+    },
+    {
+      english: 'The more we understand about the brain, the more we realize how much remains to be discovered about the nature of consciousness.',
+      chinese: '我们对大脑了解得越多，就越意识到关于意识本质还有多少有待发现。',
+      analysis: 'The more...the more...句型，表示"越...越..."。两个比较级形成关联。',
+      difficulty: 'medium'
+    },
+    {
+      english: 'Whether the proposed policy will achieve its intended goals depends largely on how effectively it is implemented at the local level.',
+      chinese: '拟议的政策能否实现其预期目标，在很大程度上取决于它在地方层面的实施效果。',
+      analysis: '主干：Whether...depends on how...。Whether引导主语从句，how引导宾语从句。',
+      difficulty: 'medium'
+    },
+    {
+      english: 'Not until the Industrial Revolution did people begin to understand the profound impact that human activities could have on the natural environment.',
+      chinese: '直到工业革命，人们才开始理解人类活动对自然环境可能产生的深远影响。',
+      analysis: 'Not until置于句首引起部分倒装。that引导定语从句修饰impact。',
+      difficulty: 'hard'
+    },
+    {
+      english: 'So rapidly has artificial intelligence advanced in recent years that many jobs once thought to be immune to automation are now at risk.',
+      chinese: '近年来人工智能发展如此迅速，以至于许多曾被认为不受自动化影响的工作现在也面临风险。',
+      analysis: 'So...that...结构，so+副词置于句首引起倒装。once thought to be是过去分词短语作后置定语。',
+      difficulty: 'hard'
+    },
+    {
+      english: 'It is essential that every student develop critical thinking skills, which are indispensable for success in the modern workplace.',
+      chinese: '每个学生都必须培养批判性思维能力，这对于在现代职场取得成功是不可或缺的。',
+      analysis: 'It is essential that...虚拟语气，从句谓语用动词原形。which引导非限制性定语从句。',
+      difficulty: 'medium'
+    },
+    {
+      english: 'The extent to which social media influences public opinion has become a subject of intense debate among scholars and policymakers alike.',
+      chinese: '社交媒体在多大程度上影响公众舆论，已成为学者和政策制定者激烈争论的话题。',
+      analysis: '主干：The extent has become a subject。to which引导定语从句修饰extent。',
       difficulty: 'hard'
     }
   ];
