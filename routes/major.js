@@ -820,9 +820,6 @@ router.post('/generate', authenticateToken, async (req, res) => {
     }));
     
     res.json({ success: true, data: safeQuestions });
-    }));
-    
-    res.json({ success: true, data: safeQuestions });
   } catch (error) {
     console.error('AI生成题目失败:', error);
     res.status(500).json({ success: false, message: '生成失败' });
