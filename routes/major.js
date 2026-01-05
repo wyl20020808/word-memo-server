@@ -91,8 +91,8 @@ async function init408Tables() {
   }
 }
 
-// 直接初始化
-init408Tables();
+// 导出初始化函数供外部调用
+router.init408Tables = init408Tables;
 
 // 插入预置的408真题
 async function insertPresetQuestions() {

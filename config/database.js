@@ -231,7 +231,7 @@ async function importWordsToMySQL() {
   const [rows] = await pool.execute('SELECT COUNT(*) as count FROM words');
   const count = rows[0].count;
   
-  if (count >= 9000) {
+  if (count >= 1000) {
     console.log(`✅ 单词表已有 ${count} 条数据，跳过导入`);
     return;
   }

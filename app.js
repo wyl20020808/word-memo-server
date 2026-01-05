@@ -61,6 +61,12 @@ app.use('*', (req, res) => {
 async function startServer() {
   try {
     await testConnection();
+    
+    // 初始化408专业课表（数据库就绪后）
+    if (majorRoutes.init408Tables) {
+      await majorRoutes.init408Tables();
+    }
+    
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 服务器启动成功！`);
       console.log(`📍 端口: ${PORT}`);
