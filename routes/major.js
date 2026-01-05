@@ -337,58 +337,152 @@ router.get('/questions', authenticateToken, async (req, res) => {
     
     let questions = [];
     
-    // 如果指定了科目，先从该科目抽取
+    // 先从数据库获取现有题目
+    let sql = 'SELECT * FROM major_questions WHERE 1=1';
+    const params = [];
+    
     if (subject) {
-      let sql = 'SELECT * FROM major_questions WHERE subject = ?';
-      const params = [subject];
+      sql += ' AND subject = ?';
+      params.push(subject);
+    }
+    if (difficulty) {
+      sql += ' AND difficulty = ?';
+      params.push(difficulty);
+    }
+    
+    sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
+    
+    const [existingQuestions] = await pool.execute(sql, params);
+    questions = existingQuestions;
+    
+    // 如果题目数量不足，AI生成补充
+    if (questions.length < limitCount) {
+      const remaining = limitCount - questions.length;
       
-      if (difficulty) {
-        sql += ' AND difficulty = ?';
-        params.push(difficulty);
+      if (!DOUBAO_API_KEY) {
+        // 没有AI服务，返回现有题目
+        const safeQuestions = questions.map(q => ({
+          id: q.id,
+          subject: q.subject,
+          chapter: q.chapter,
+          question: q.question,
+          options: {
+            A: q.option_a,
+            B: q.option_b,
+            C: q.option_c,
+            D: q.option_d
+          },
+          difficulty: q.difficulty
+        }));
+        
+        return res.json({ 
+          success: true, 
+          data: safeQuestions,
+          message: `题库不足，仅返回${questions.length}道题目`
+        });
       }
       
-      sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
+      // AI生成补充题目
+      const subjectName = subject ? SUBJECTS[subject]?.name || '408专业课' : '408专业课';
       
-      const [subjectQuestions] = await pool.execute(sql, params);
-      questions = subjectQuestions;
-      
-      // 如果该科目题目不足，从其他科目补充
-      if (questions.length < limitCount) {
-        const remaining = limitCount - questions.length;
-        const usedIds = questions.map(q => q.id);
+      try {
+        const response = await axios.post(
+          'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+          {
+            model: DOUBAO_MODEL,
+            messages: [
+              {
+                role: 'system',
+                content: `你是一个考研408专业课出题专家。请生成${remaining}道${subjectName}的选择题。
+
+严格按照以下JSON格式返回，只返回JSON数组：
+[
+  {
+    "question": "题目内容",
+    "option_a": "选项A内容",
+    "option_b": "选项B内容", 
+    "option_c": "选项C内容",
+    "option_d": "选项D内容",
+    "answer": "正确答案(A/B/C/D)",
+    "explanation": "解析",
+    "difficulty": "easy/medium/hard",
+    "chapter": "所属章节"
+  }
+]
+
+要求：
+1. 题目符合考研408难度
+2. 选项有迷惑性
+3. 解析详细清晰`
+              },
+              {
+                role: 'user',
+                content: `请生成${remaining}道${subjectName}的选择题`
+              }
+            ],
+            temperature: 0.8,
+            max_tokens: 2000
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${DOUBAO_API_KEY}`
+            },
+            timeout: 60000
+          }
+        );
+
+        const content = response.data.choices[0]?.message?.content || '';
         
-        let supplementSql = 'SELECT * FROM major_questions WHERE subject != ?';
-        const supplementParams = [subject];
-        
-        if (usedIds.length > 0) {
-          supplementSql += ` AND id NOT IN (${usedIds.map(() => '?').join(',')})`;
-          supplementParams.push(...usedIds);
+        // 解析JSON
+        let generatedQuestions = [];
+        try {
+          const jsonMatch = content.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            generatedQuestions = JSON.parse(jsonMatch[0]);
+          }
+        } catch (e) {
+          console.error('解析AI生成题目失败:', e);
         }
         
-        if (difficulty) {
-          supplementSql += ' AND difficulty = ?';
-          supplementParams.push(difficulty);
+        // 保存AI生成的题目到数据库
+        for (const q of generatedQuestions) {
+          try {
+            const [result] = await pool.execute(`
+              INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AI生成', 1)
+            `, [
+              subject || 'ds', 
+              q.chapter || '', 
+              q.question, 
+              q.option_a, 
+              q.option_b, 
+              q.option_c, 
+              q.option_d, 
+              q.answer, 
+              q.explanation, 
+              q.difficulty || 'medium'
+            ]);
+            
+            // 添加到返回列表
+            questions.push({
+              id: result.insertId,
+              subject: subject || 'ds',
+              chapter: q.chapter || '',
+              question: q.question,
+              option_a: q.option_a,
+              option_b: q.option_b,
+              option_c: q.option_c,
+              option_d: q.option_d,
+              difficulty: q.difficulty || 'medium'
+            });
+          } catch (dbError) {
+            console.error('保存AI题目失败:', dbError);
+          }
         }
-        
-        supplementSql += ` ORDER BY RAND() LIMIT ${remaining}`;
-        
-        const [supplementQuestions] = await pool.execute(supplementSql, supplementParams);
-        questions = questions.concat(supplementQuestions);
+      } catch (aiError) {
+        console.error('AI生成题目失败:', aiError);
       }
-    } else {
-      // 没有指定科目，从所有科目中抽取
-      let sql = 'SELECT * FROM major_questions WHERE 1=1';
-      const params = [];
-      
-      if (difficulty) {
-        sql += ' AND difficulty = ?';
-        params.push(difficulty);
-      }
-      
-      sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
-      
-      const [allQuestions] = await pool.execute(sql, params);
-      questions = allQuestions;
     }
     
     // 不返回答案和解析
