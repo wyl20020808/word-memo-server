@@ -110,6 +110,85 @@ async function init408Tables() {
 // 导出初始化函数供外部调用
 router.init408Tables = init408Tables;
 
+// 生成备用题目（当AI失败时使用）
+function generateFallbackQuestions(subject, count) {
+  const templates = {
+    ds: [
+      {
+        chapter: '数据结构基础',
+        question: '下列关于数据结构的叙述中，正确的是：',
+        option_a: '数据结构是数据的存储结构',
+        option_b: '数据结构是数据元素的集合',
+        option_c: '数据结构是数据元素及其关系的集合',
+        option_d: '数据结构是数据的逻辑结构',
+        answer: 'C',
+        explanation: '数据结构包括数据元素以及数据元素之间的关系。',
+        difficulty: 'easy'
+      }
+    ],
+    os: [
+      {
+        chapter: '操作系统概述',
+        question: '操作系统的主要功能不包括：',
+        option_a: '处理器管理',
+        option_b: '存储器管理',
+        option_c: '设备管理',
+        option_d: '编译程序',
+        answer: 'D',
+        explanation: '编译程序是系统软件，不是操作系统的主要功能。',
+        difficulty: 'easy'
+      }
+    ],
+    cn: [
+      {
+        chapter: '计算机网络概述',
+        question: 'OSI参考模型共有几层：',
+        option_a: '5层',
+        option_b: '6层',
+        option_c: '7层',
+        option_d: '8层',
+        answer: 'C',
+        explanation: 'OSI参考模型分为7层：物理层、数据链路层、网络层、传输层、会话层、表示层、应用层。',
+        difficulty: 'easy'
+      }
+    ],
+    co: [
+      {
+        chapter: '计算机系统概述',
+        question: '计算机系统由哪两大部分组成：',
+        option_a: '主机和外设',
+        option_b: '硬件和软件',
+        option_c: 'CPU和内存',
+        option_d: '输入设备和输出设备',
+        answer: 'B',
+        explanation: '计算机系统由硬件系统和软件系统两大部分组成。',
+        difficulty: 'easy'
+      }
+    ]
+  };
+
+  const subjectTemplates = templates[subject] || templates.ds;
+  const questions = [];
+  
+  for (let i = 0; i < count && i < subjectTemplates.length; i++) {
+    const template = subjectTemplates[i];
+    questions.push({
+      subject,
+      chapter: template.chapter,
+      question: template.question,
+      option_a: template.option_a,
+      option_b: template.option_b,
+      option_c: template.option_c,
+      option_d: template.option_d,
+      answer: template.answer,
+      explanation: template.explanation,
+      difficulty: template.difficulty
+    });
+  }
+  
+  return questions;
+}
+
 // 插入预置的408真题
 async function insertPresetQuestions() {
   const questions = [
@@ -386,6 +465,8 @@ router.get('/questions', authenticateToken, async (req, res) => {
       const subjectName = subject ? SUBJECTS[subject]?.name || '408专业课' : '408专业课';
       
       try {
+        console.log(`🤖 AI生成${remaining}道${subjectName}题目...`);
+        
         const response = await axios.post(
           'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
           {
@@ -393,46 +474,32 @@ router.get('/questions', authenticateToken, async (req, res) => {
             messages: [
               {
                 role: 'system',
-                content: `你是一个考研408专业课出题专家。请生成${remaining}道${subjectName}的选择题。
+                content: `你是考研408出题专家。生成${remaining}道${subjectName}选择题。
 
-严格按照以下JSON格式返回，只返回JSON数组：
-[
-  {
-    "question": "题目内容",
-    "option_a": "选项A内容",
-    "option_b": "选项B内容", 
-    "option_c": "选项C内容",
-    "option_d": "选项D内容",
-    "answer": "正确答案(A/B/C/D)",
-    "explanation": "解析",
-    "difficulty": "easy/medium/hard",
-    "chapter": "所属章节"
-  }
-]
+返回JSON数组格式：
+[{"question":"题目","option_a":"A选项","option_b":"B选项","option_c":"C选项","option_d":"D选项","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]
 
-要求：
-1. 题目符合考研408难度
-2. 选项有迷惑性
-3. 解析详细清晰`
+要求：题目准确，选项有迷惑性，解析简洁。`
               },
               {
                 role: 'user',
-                content: `请生成${remaining}道${subjectName}的选择题`
+                content: `生成${remaining}道${subjectName}选择题`
               }
             ],
             temperature: 0.8,
-            max_tokens: 2000
+            max_tokens: 1500
           },
           {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${DOUBAO_API_KEY}`
             },
-            timeout: 60000
+            timeout: 20000  // 减少到20秒
           }
         );
 
         const content = response.data.choices[0]?.message?.content || '';
+        console.log('🤖 AI返回内容长度:', content.length);
         
         // 解析JSON
         let generatedQuestions = [];
@@ -440,12 +507,15 @@ router.get('/questions', authenticateToken, async (req, res) => {
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           if (jsonMatch) {
             generatedQuestions = JSON.parse(jsonMatch[0]);
+            console.log(`✅ 成功解析${generatedQuestions.length}道AI题目`);
           }
         } catch (e) {
-          console.error('解析AI生成题目失败:', e);
+          console.error('❌ 解析AI题目JSON失败:', e);
+          console.log('原始内容:', content);
         }
         
         // 保存AI生成的题目到数据库
+        let savedCount = 0;
         for (const q of generatedQuestions) {
           try {
             const [result] = await pool.execute(`
@@ -476,12 +546,42 @@ router.get('/questions', authenticateToken, async (req, res) => {
               option_d: q.option_d,
               difficulty: q.difficulty || 'medium'
             });
+            savedCount++;
           } catch (dbError) {
-            console.error('保存AI题目失败:', dbError);
+            console.error('❌ 保存AI题目失败:', dbError);
           }
         }
+        console.log(`✅ 成功保存${savedCount}道AI题目到数据库`);
       } catch (aiError) {
-        console.error('AI生成题目失败:', aiError);
+        console.error('❌ AI生成题目失败:', aiError.message);
+        
+        // AI失败时，生成一些简单的预设题目作为备用
+        if (questions.length < limitCount) {
+          const fallbackQuestions = generateFallbackQuestions(subject || 'ds', limitCount - questions.length);
+          for (const q of fallbackQuestions) {
+            try {
+              const [result] = await pool.execute(`
+                INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '系统生成', 0)
+              `, [q.subject, q.chapter, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.answer, q.explanation, q.difficulty]);
+              
+              questions.push({
+                id: result.insertId,
+                subject: q.subject,
+                chapter: q.chapter,
+                question: q.question,
+                option_a: q.option_a,
+                option_b: q.option_b,
+                option_c: q.option_c,
+                option_d: q.option_d,
+                difficulty: q.difficulty
+              });
+            } catch (dbError) {
+              console.error('❌ 保存备用题目失败:', dbError);
+            }
+          }
+          console.log(`✅ 生成${fallbackQuestions.length}道备用题目`);
+        }
       }
     }
     
@@ -826,6 +926,99 @@ D. ${question.option_d}
   } catch (error) {
     console.error('AI解析失败:', error);
     res.status(500).json({ success: false, message: '解析失败' });
+  }
+});
+
+// AI生成题目（独立接口，作为备用方案）
+router.post('/generate-backup', authenticateToken, async (req, res) => {
+  try {
+    const { subject, count = 5 } = req.body;
+    
+    if (!DOUBAO_API_KEY) {
+      return res.status(400).json({ success: false, message: 'AI服务未配置' });
+    }
+    
+    const subjectName = SUBJECTS[subject]?.name || '408专业课';
+    const limitCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
+    
+    console.log(`🤖 备用接口生成${limitCount}道${subjectName}题目...`);
+    
+    const response = await axios.post(
+      'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      {
+        model: DOUBAO_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: `你是考研408出题专家。生成${limitCount}道${subjectName}选择题。
+
+返回JSON数组：
+[{"question":"题目","option_a":"A选项","option_b":"B选项","option_c":"C选项","option_d":"D选项","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]`
+          },
+          {
+            role: 'user',
+            content: `生成${limitCount}道${subjectName}选择题`
+          }
+        ],
+        temperature: 0.8,
+        max_tokens: 1000
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        },
+        timeout: 15000
+      }
+    );
+
+    const content = response.data.choices[0]?.message?.content || '';
+    
+    // 解析JSON
+    let generatedQuestions = [];
+    try {
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        generatedQuestions = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('解析失败:', e);
+      return res.status(500).json({ success: false, message: '生成失败' });
+    }
+    
+    // 保存到数据库并返回
+    const savedIds = [];
+    for (const q of generatedQuestions) {
+      try {
+        const [result] = await pool.execute(`
+          INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AI生成', 1)
+        `, [subject, q.chapter || '', q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.answer, q.explanation, q.difficulty || 'medium']);
+        savedIds.push(result.insertId);
+      } catch (dbError) {
+        console.error('保存失败:', dbError);
+      }
+    }
+    
+    // 返回生成的题目（不含答案）
+    const safeQuestions = generatedQuestions.map((q, i) => ({
+      id: savedIds[i],
+      subject,
+      chapter: q.chapter || '',
+      question: q.question,
+      options: {
+        A: q.option_a,
+        B: q.option_b,
+        C: q.option_c,
+        D: q.option_d
+      },
+      difficulty: q.difficulty || 'medium'
+    }));
+    
+    res.json({ success: true, data: safeQuestions });
+  } catch (error) {
+    console.error('备用生成失败:', error);
+    res.status(500).json({ success: false, message: '生成失败' });
   }
 });
 
