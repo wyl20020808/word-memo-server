@@ -64,7 +64,8 @@ async function initSummaryTables() {
   }
 }
 
-initSummaryTables();
+// 导出初始化函数供外部调用
+router.initSummaryTables = initSummaryTables;
 
 // ==================== 学习进度接口 ====================
 

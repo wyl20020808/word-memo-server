@@ -273,8 +273,8 @@ async function insertSampleData() {
   console.log('✅ 示例数据插入完成');
 }
 
-// 初始化表
-initEnglishTables();
+// 导出初始化函数供外部调用
+router.initEnglishTables = initEnglishTables;
 
 // ==================== 阅读文章接口 ====================
 

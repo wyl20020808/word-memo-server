@@ -62,10 +62,20 @@ async function startServer() {
   try {
     await testConnection();
     
-    // 初始化408专业课表（数据库就绪后）
+    // 数据库就绪后，初始化各模块的表
+    console.log('🔧 开始初始化各模块表...');
+    
+    if (englishRoutes.initEnglishTables) {
+      await englishRoutes.initEnglishTables();
+    }
+    if (summaryRoutes.initSummaryTables) {
+      await summaryRoutes.initSummaryTables();
+    }
     if (majorRoutes.init408Tables) {
       await majorRoutes.init408Tables();
     }
+    
+    console.log('✅ 所有模块表初始化完成');
     
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 服务器启动成功！`);
