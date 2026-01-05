@@ -2,18 +2,11 @@
  * AI助手路由
  */
 const express = require('express');
-const axios = require('axios');
 const { authenticateToken } = require('../middleware/auth');
 const { pool } = require('../config/database');
+const { callAI, parseAIJSON } = require('../services/aiService');
 
 const router = express.Router();
-
-// 豆包AI配置
-const DOUBAO_CONFIG = {
-  apiKey: process.env.DOUBAO_API_KEY || '52b5d7d9-1c95-4188-8bc9-613460fb3168',
-  apiUrl: process.env.DOUBAO_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-  model: process.env.DOUBAO_MODEL || 'doubao-seed-1-6-lite-251015'
-};
 
 // AI对话接口
 router.post('/chat', authenticateToken, async (req, res) => {
@@ -24,8 +17,8 @@ router.post('/chat', authenticateToken, async (req, res) => {
     console.log('AI请求:', message);
     console.log('上下文:', context);
 
-    // 调用豆包AI
-    const response = await callDoubaoAI(message, context, userId);
+    // 调用通用AI服务
+    const response = await callAIChat(message, context, userId);
 
     res.json({ success: true, data: response });
   } catch (error) {
@@ -144,8 +137,8 @@ router.post('/complete-word', authenticateToken, async (req, res) => {
   }
 });
 
-// 调用豆包AI
-async function callDoubaoAI(userMessage, context, userId) {
+// 调用通用AI服务进行对话
+async function callAIChat(userMessage, context, userId) {
   try {
     // 构建系统提示词
     const systemPrompt = buildSystemPrompt(context);
@@ -167,27 +160,14 @@ async function callDoubaoAI(userMessage, context, userId) {
       });
     }
 
-    console.log('🤖 调用豆包AI:', DOUBAO_CONFIG.model);
+    console.log('🤖 调用通用AI服务进行对话');
     
-    // 调用豆包API
-    const response = await axios.post(
-      DOUBAO_CONFIG.apiUrl,
-      {
-        model: DOUBAO_CONFIG.model,
-        messages: messages,
-        max_tokens: 1000,
-        temperature: 0.7
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DOUBAO_CONFIG.apiKey}`
-        },
-        timeout: 30000
-      }
-    );
+    // 调用通用AI服务
+    const aiMessage = await callAI(messages, { 
+      temperature: 0.7, 
+      maxTokens: 1000 
+    });
 
-    const aiMessage = response.data.choices[0].message.content;
     console.log('✅ AI回复:', aiMessage);
 
     return {
@@ -196,7 +176,7 @@ async function callDoubaoAI(userMessage, context, userId) {
     };
 
   } catch (error) {
-    console.error('❌ 豆包AI调用失败:', error.response?.data || error.message);
+    console.error('❌ AI调用失败:', error.message);
     
     // 如果AI调用失败，降级到规则引擎
     console.log('⚠️ 降级到规则引擎');
@@ -413,29 +393,21 @@ async function generateWordContent(word, phonetic, meaning) {
 The government consulted a specialist in renewable energy.|||政府咨询了一位可再生能源专家。
 She made an appointment with a specialist.|||她预约了一位专科医生。`;
 
-    console.log('🤖 调用豆包AI生成例句');
+    console.log('🤖 调用通用AI服务生成例句');
 
-    const response = await axios.post(
-      DOUBAO_CONFIG.apiUrl,
-      {
-        model: DOUBAO_CONFIG.model,
-        messages: [
-          { role: 'system', content: '你是一个专业的英语教学助手，擅长生成简洁实用的例句。请严格按照用户要求的格式输出，不要添加任何序号、前缀或额外说明。' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 500,
-        temperature: 0.7
+    const messages = [
+      { 
+        role: 'system', 
+        content: '你是一个专业的英语教学助手，擅长生成简洁实用的例句。请严格按照用户要求的格式输出，不要添加任何序号、前缀或额外说明。' 
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DOUBAO_CONFIG.apiKey}`
-        },
-        timeout: 30000
-      }
-    );
+      { role: 'user', content: prompt }
+    ];
 
-    const aiResponse = response.data.choices[0].message.content.trim();
+    const aiResponse = await callAI(messages, { 
+      temperature: 0.7, 
+      maxTokens: 500 
+    });
+
     console.log('✅ AI返回:', aiResponse);
 
     // 解析AI返回的内容
@@ -467,7 +439,7 @@ She made an appointment with a specialist.|||她预约了一位专科医生。`;
     return { examples, translations };
 
   } catch (error) {
-    console.error('❌ AI生成失败:', error.response?.data || error.message);
+    console.error('❌ AI生成失败:', error.message);
     
     // 降级：返回简单的默认例句
     return {

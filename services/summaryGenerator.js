@@ -1,24 +1,17 @@
 // AI总结生成服务 - 支持从自然语言提取学习数据
-const axios = require('axios');
-
-const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY;
-const DOUBAO_MODEL = process.env.DOUBAO_MODEL || 'doubao-1-5-lite-32k-250115';
+const { callAI, parseAIJSON } = require('./aiService');
 
 // 从用户输入中提取学习数据
 async function extractStudyData(userInput) {
-  if (!DOUBAO_API_KEY || !userInput || userInput.trim().length < 10) {
+  if (!userInput || userInput.trim().length < 10) {
     return null;
   }
 
   try {
-    const response = await axios.post(
-      'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    const messages = [
       {
-        model: DOUBAO_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: `你是一个学习数据提取助手。从用户描述的今日学习内容中提取具体的学习数据。
+        role: 'system',
+        content: `你是一个学习数据提取助手。从用户描述的今日学习内容中提取具体的学习数据。
 
 请严格按照以下JSON格式返回，只返回JSON，不要有其他文字：
 {
@@ -35,38 +28,23 @@ async function extractStudyData(userInput) {
 - 如果用户提到"做了笔记"、"整理了X条笔记"，提取为notes
 - 没有提到的字段设为0或空字符串
 - 1小时=60分钟，半小时=30分钟`
-          },
-          {
-            role: 'user',
-            content: userInput
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 500
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DOUBAO_API_KEY}`
-        },
-        timeout: 30000
+        role: 'user',
+        content: userInput
       }
-    );
+    ];
 
-    const content = response.data.choices[0]?.message?.content || '';
+    const content = await callAI(messages, { temperature: 0.3, maxTokens: 500 });
+    const data = parseAIJSON(content);
     
-    // 尝试解析JSON
-    try {
-      // 提取JSON部分
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('解析提取数据失败:', e);
+    if (data) {
+      console.log('✅ 成功提取学习数据:', data);
+      return data;
+    } else {
+      console.log('⚠️ AI返回格式不正确，使用默认解析');
+      return null;
     }
-    
-    return null;
   } catch (error) {
     console.error('AI提取数据失败:', error.message);
     return null;
@@ -139,23 +117,12 @@ async function generateAISummary(studyData) {
     dataDescription += `今日状态：${moodMap[mood] || mood}\n`;
   }
 
-  // 如果没有豆包API，使用本地生成
-  if (!DOUBAO_API_KEY) {
-    return {
-      ...generateLocalSummary(studyData),
-      extractedData: mergedProgress
-    };
-  }
-
+  // 如果没有AI API，使用本地生成
   try {
-    const response = await axios.post(
-      'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+    const messages = [
       {
-        model: DOUBAO_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: `你是一个考研学习助手，帮助学生总结每日学习情况并给出建议。
+        role: 'system',
+        content: `你是一个考研学习助手，帮助学生总结每日学习情况并给出建议。
 请根据学生的学习数据，生成：
 1. 简洁的今日学习总结（80字以内，突出亮点）
 2. 针对性的学习建议（2-3条，每条15字以内）
@@ -167,25 +134,14 @@ async function generateAISummary(studyData) {
 1. xxx
 2. xxx
 鼓励：xxx`
-          },
-          {
-            role: 'user',
-            content: dataDescription
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DOUBAO_API_KEY}`
-        },
-        timeout: 30000
+        role: 'user',
+        content: dataDescription
       }
-    );
+    ];
 
-    const content = response.data.choices[0]?.message?.content || '';
+    const content = await callAI(messages, { temperature: 0.7, maxTokens: 500 });
     
     // 解析AI回复
     const summaryMatch = content.match(/总结[：:]\s*(.+?)(?=建议|$)/s);
