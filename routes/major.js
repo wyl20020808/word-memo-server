@@ -19,11 +19,11 @@ const SUBJECTS = {
 // 初始化408题库表
 async function init408Tables() {
   try {
-    // 题目表
+    // 题目表 - 使用VARCHAR代替ENUM以提高兼容性
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS major_questions (
         id INT PRIMARY KEY AUTO_INCREMENT,
-        subject ENUM('ds', 'os', 'cn', 'co') NOT NULL,
+        subject VARCHAR(10) NOT NULL,
         chapter VARCHAR(100),
         question TEXT NOT NULL,
         option_a VARCHAR(500) NOT NULL,
@@ -32,7 +32,7 @@ async function init408Tables() {
         option_d VARCHAR(500) NOT NULL,
         answer CHAR(1) NOT NULL,
         explanation TEXT,
-        difficulty ENUM('easy', 'medium', 'hard') DEFAULT 'medium',
+        difficulty VARCHAR(10) DEFAULT 'medium',
         source VARCHAR(100),
         year INT,
         is_ai_generated TINYINT DEFAULT 0,
@@ -43,6 +43,7 @@ async function init408Tables() {
         INDEX idx_difficulty (difficulty)
       )
     `);
+    console.log('✅ major_questions 表创建成功');
 
     // 用户答题记录表
     await pool.execute(`
@@ -58,19 +59,21 @@ async function init408Tables() {
         INDEX idx_question (question_id)
       )
     `);
+    console.log('✅ user_major_records 表创建成功');
 
     // 用户408统计表
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS user_major_stats (
         id INT PRIMARY KEY AUTO_INCREMENT,
         user_id INT NOT NULL,
-        subject ENUM('ds', 'os', 'cn', 'co') NOT NULL,
+        subject VARCHAR(10) NOT NULL,
         date DATE NOT NULL,
         questions_done INT DEFAULT 0,
         correct_count INT DEFAULT 0,
         UNIQUE KEY unique_user_subject_date (user_id, subject, date)
       )
     `);
+    console.log('✅ user_major_stats 表创建成功');
 
     // 检查是否有题目，没有则插入预置题目
     const [count] = await pool.execute('SELECT COUNT(*) as cnt FROM major_questions');
@@ -80,7 +83,8 @@ async function init408Tables() {
 
     console.log('✅ 408专业课题库表初始化完成');
   } catch (error) {
-    console.error('初始化408表失败:', error);
+    console.error('初始化408表失败:', error.message);
+    console.error('错误详情:', error);
   }
 }
 
@@ -307,6 +311,7 @@ init408Tables();
 router.get('/questions', authenticateToken, async (req, res) => {
   try {
     const { subject, count = 10, difficulty } = req.query;
+    const limitCount = Math.min(Math.max(parseInt(count) || 10, 1), 50); // 限制1-50
     
     let sql = 'SELECT * FROM major_questions WHERE 1=1';
     const params = [];
@@ -320,8 +325,7 @@ router.get('/questions', authenticateToken, async (req, res) => {
       params.push(difficulty);
     }
     
-    sql += ' ORDER BY RAND() LIMIT ?';
-    params.push(parseInt(count));
+    sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
     
     const [questions] = await pool.execute(sql, params);
     
@@ -554,6 +558,7 @@ router.get('/wrong', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { subject, limit = 20 } = req.query;
+    const limitCount = Math.min(Math.max(parseInt(limit) || 20, 1), 100); // 限制1-100
     
     let sql = `
       SELECT DISTINCT q.*, r.user_answer, r.answered_at
@@ -568,8 +573,7 @@ router.get('/wrong', authenticateToken, async (req, res) => {
       params.push(subject);
     }
     
-    sql += ' ORDER BY r.answered_at DESC LIMIT ?';
-    params.push(parseInt(limit));
+    sql += ` ORDER BY r.answered_at DESC LIMIT ${limitCount}`;
     
     const [questions] = await pool.execute(sql, params);
     
