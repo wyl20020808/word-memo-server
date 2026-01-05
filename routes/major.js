@@ -469,47 +469,66 @@ router.get('/questions', authenticateToken, async (req, res) => {
     if (questions.length < limitCount) {
       const remaining = limitCount - questions.length;
       
-      // 使用通用AI服务生成补充题目
+      // 分批生成题目，每批最多2道，避免超时
       const subjectName = subject ? SUBJECTS[subject]?.name || '408专业课' : '408专业课';
+      let allGeneratedQuestions = [];
       
       try {
-        console.log(`🤖 AI生成${remaining}道${subjectName}题目...`);
+        console.log(`🤖 需要生成${remaining}道${subjectName}题目，将分批生成...`);
         
-        const messages = [
-          {
-            role: 'system',
-            content: `你是考研408出题专家。生成${remaining}道${subjectName}选择题。
+        // 分批生成，每批最多2道题
+        const batchSize = 2;
+        const batches = Math.ceil(remaining / batchSize);
+        
+        for (let i = 0; i < batches; i++) {
+          const currentBatchSize = Math.min(batchSize, remaining - i * batchSize);
+          console.log(`🤖 生成第${i + 1}/${batches}批，${currentBatchSize}道题目...`);
+          
+          const messages = [
+            {
+              role: 'system',
+              content: `你是考研408出题专家。生成${currentBatchSize}道${subjectName}选择题。
 
 返回JSON数组格式：
 [{"question":"题目","option_a":"A选项","option_b":"B选项","option_c":"C选项","option_d":"D选项","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]
 
-要求：题目准确，选项有迷惑性，解析简洁。`
-          },
-          {
-            role: 'user',
-            content: `生成${remaining}道${subjectName}选择题`
-          }
-        ];
+要求：题目准确，选项有迷惑性，解析简洁。每道题目要有足够的区分度。`
+            },
+            {
+              role: 'user',
+              content: `生成${currentBatchSize}道${subjectName}选择题`
+            }
+          ];
 
-        const content = await callAI(messages, { 
-          temperature: 0.8, 
-          maxTokens: 1500 
-        });
-        console.log('🤖 AI返回内容长度:', content.length);
-        
-        // 解析JSON
-        let generatedQuestions = parseAIJSON(content);
-        
-        if (!generatedQuestions || !Array.isArray(generatedQuestions)) {
-          console.error('❌ 解析AI题目JSON失败，原始内容:', content);
-          generatedQuestions = [];
-        } else {
-          console.log(`✅ 成功解析${generatedQuestions.length}道AI题目`);
+          try {
+            const content = await callAI(messages, { 
+              temperature: 0.8, 
+              maxTokens: 800  // 减少token数量
+            });
+            
+            const batchQuestions = parseAIJSON(content);
+            if (batchQuestions && Array.isArray(batchQuestions)) {
+              allGeneratedQuestions.push(...batchQuestions);
+              console.log(`✅ 第${i + 1}批成功生成${batchQuestions.length}道题目`);
+            } else {
+              console.log(`⚠️ 第${i + 1}批解析失败，跳过`);
+            }
+            
+            // 批次间稍作延迟，避免请求过于频繁
+            if (i < batches - 1) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          } catch (batchError) {
+            console.error(`❌ 第${i + 1}批生成失败:`, batchError.message);
+            // 继续下一批
+          }
         }
+        
+        console.log(`✅ 总共成功生成${allGeneratedQuestions.length}道AI题目`);
         
         // 保存AI生成的题目到数据库
         let savedCount = 0;
-        for (const q of generatedQuestions) {
+        for (const q of allGeneratedQuestions) {
           try {
             const [result] = await pool.execute(`
               INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
@@ -664,10 +683,15 @@ router.post('/generate', authenticateToken, async (req, res) => {
     
     const subjectName = SUBJECTS[subject]?.name || '计算机专业课';
     
-    const messages = [
-      {
-        role: 'system',
-        content: `你是一个考研408专业课出题专家。请生成${count}道${subjectName}${chapter ? '（' + chapter + '）' : ''}的选择题。
+    // 如果请求数量较多，分批生成
+    let allGeneratedQuestions = [];
+    
+    if (count <= 2) {
+      // 少量题目，直接生成
+      const messages = [
+        {
+          role: 'system',
+          content: `你是一个考研408专业课出题专家。请生成${count}道${subjectName}${chapter ? '（' + chapter + '）' : ''}的选择题。
 
 严格按照以下JSON格式返回，只返回JSON数组，不要有其他文字：
 [
@@ -689,29 +713,90 @@ router.post('/generate', authenticateToken, async (req, res) => {
 2. 选项要有迷惑性
 3. 解析要详细清晰
 4. 难度分布合理`
-      },
-      {
-        role: 'user',
-        content: `请生成${count}道${subjectName}${chapter ? chapter : ''}的选择题`
-      }
-    ];
+        },
+        {
+          role: 'user',
+          content: `请生成${count}道${subjectName}${chapter ? chapter : ''}的选择题`
+        }
+      ];
 
-    const content = await callAI(messages, { 
-      temperature: 0.8, 
-      maxTokens: 2000 
-    });
+      const content = await callAI(messages, { 
+        temperature: 0.8, 
+        maxTokens: 1000 
+      });
+      
+      allGeneratedQuestions = parseAIJSON(content) || [];
+    } else {
+      // 多题目，分批生成
+      console.log(`🤖 需要生成${count}道题目，将分批生成...`);
+      const batchSize = 2;
+      const batches = Math.ceil(count / batchSize);
+      
+      for (let i = 0; i < batches; i++) {
+        const currentBatchSize = Math.min(batchSize, count - i * batchSize);
+        console.log(`🤖 生成第${i + 1}/${batches}批，${currentBatchSize}道题目...`);
+        
+        const messages = [
+          {
+            role: 'system',
+            content: `你是一个考研408专业课出题专家。请生成${currentBatchSize}道${subjectName}${chapter ? '（' + chapter + '）' : ''}的选择题。
+
+严格按照以下JSON格式返回，只返回JSON数组，不要有其他文字：
+[
+  {
+    "question": "题目内容",
+    "option_a": "选项A内容",
+    "option_b": "选项B内容", 
+    "option_c": "选项C内容",
+    "option_d": "选项D内容",
+    "answer": "正确答案(A/B/C/D)",
+    "explanation": "解析",
+    "difficulty": "easy/medium/hard",
+    "chapter": "所属章节"
+  }
+]
+
+要求：题目准确，选项有迷惑性，解析简洁。`
+          },
+          {
+            role: 'user',
+            content: `请生成${currentBatchSize}道${subjectName}${chapter ? chapter : ''}的选择题`
+          }
+        ];
+
+        try {
+          const content = await callAI(messages, { 
+            temperature: 0.8, 
+            maxTokens: 800 
+          });
+          
+          const batchQuestions = parseAIJSON(content);
+          if (batchQuestions && Array.isArray(batchQuestions)) {
+            allGeneratedQuestions.push(...batchQuestions);
+            console.log(`✅ 第${i + 1}批成功生成${batchQuestions.length}道题目`);
+          }
+          
+          // 批次间延迟
+          if (i < batches - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (batchError) {
+          console.error(`❌ 第${i + 1}批生成失败:`, batchError.message);
+        }
+      }
+    }
     
-    // 解析JSON
-    let generatedQuestions = parseAIJSON(content);
-    
-    if (!generatedQuestions || !Array.isArray(generatedQuestions)) {
-      console.error('解析AI生成题目失败，返回内容:', content);
+    // 检查生成结果
+    if (!allGeneratedQuestions || allGeneratedQuestions.length === 0) {
+      console.error('AI生成题目失败，没有有效题目');
       return res.status(500).json({ success: false, message: '生成失败' });
     }
     
+    console.log(`✅ 总共生成${allGeneratedQuestions.length}道题目`);
+    
     // 保存到数据库
     const savedIds = [];
-    for (const q of generatedQuestions) {
+    for (const q of allGeneratedQuestions) {
       const [result] = await pool.execute(`
         INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AI生成', 1)
@@ -720,7 +805,7 @@ router.post('/generate', authenticateToken, async (req, res) => {
     }
     
     // 返回生成的题目（不含答案）
-    const safeQuestions = generatedQuestions.map((q, i) => ({
+    const safeQuestions = allGeneratedQuestions.map((q, i) => ({
       id: savedIds[i],
       subject,
       chapter: q.chapter || chapter,
@@ -732,6 +817,9 @@ router.post('/generate', authenticateToken, async (req, res) => {
         D: q.option_d
       },
       difficulty: q.difficulty || 'medium'
+    }));
+    
+    res.json({ success: true, data: safeQuestions });
     }));
     
     res.json({ success: true, data: safeQuestions });

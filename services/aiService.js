@@ -7,14 +7,14 @@ const AI_CONFIGS = [
     url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
     key: process.env.DOUBAO_API_KEY,
     model: process.env.DOUBAO_MODEL || 'doubao-1-5-lite-32k-250115',
-    timeout: 20000
+    timeout: 45000  // 增加到45秒
   },
   {
     name: 'DeepSeek',
     url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
     key: process.env.DEEPSEEK_API_KEY || '52b5d7d9-1c95-4188-8bc9-613460fb3168',
     model: 'deepseek-v3-2-251201',
-    timeout: 15000
+    timeout: 40000  // 增加到40秒
   }
 ];
 
