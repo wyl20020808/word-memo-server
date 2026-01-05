@@ -8,6 +8,10 @@ const router = express.Router();
 const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY;
 const DOUBAO_MODEL = process.env.DOUBAO_MODEL || 'doubao-1-5-lite-32k-250115';
 
+// DeepSeek API配置
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '52b5d7d9-1c95-4188-8bc9-613460fb3168';
+const DEEPSEEK_MODEL = 'deepseek-v3-2-251201';
+
 // 408四门课程
 const SUBJECTS = {
   ds: { name: '数据结构', code: 'ds' },
@@ -109,6 +113,84 @@ async function init408Tables() {
 
 // 导出初始化函数供外部调用
 router.init408Tables = init408Tables;
+
+// AI生成题目的通用函数
+async function callAIForQuestions(subject, remaining, retryCount = 0) {
+  const subjectName = SUBJECTS[subject]?.name || '408专业课';
+  const prompt = {
+    system: `你是考研408出题专家。生成${remaining}道${subjectName}选择题。
+
+返回JSON数组：
+[{"question":"题目","option_a":"A选项","option_b":"B选项","option_c":"C选项","option_d":"D选项","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]`,
+    user: `生成${remaining}道${subjectName}选择题`
+  };
+
+  const apis = [
+    {
+      name: 'Doubao',
+      url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      key: DOUBAO_API_KEY,
+      model: DOUBAO_MODEL,
+      timeout: 20000
+    },
+    {
+      name: 'DeepSeek',
+      url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      key: DEEPSEEK_API_KEY,
+      model: DEEPSEEK_MODEL,
+      timeout: 15000
+    }
+  ];
+
+  for (let i = 0; i < apis.length; i++) {
+    const api = apis[i];
+    
+    if (!api.key) {
+      console.log(`⚠️ ${api.name} API密钥未配置，跳过`);
+      continue;
+    }
+
+    try {
+      console.log(`🤖 尝试使用${api.name} API生成${remaining}道题目...`);
+      
+      const response = await axios.post(api.url, {
+        model: api.model,
+        messages: [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user }
+        ],
+        temperature: 0.8,
+        max_tokens: 1500
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${api.key}`
+        },
+        timeout: api.timeout
+      });
+
+      const content = response.data.choices[0]?.message?.content || '';
+      console.log(`✅ ${api.name} API返回内容长度:`, content.length);
+      
+      // 解析JSON
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const generatedQuestions = JSON.parse(jsonMatch[0]);
+        console.log(`✅ ${api.name} 成功生成${generatedQuestions.length}道题目`);
+        return generatedQuestions;
+      }
+    } catch (error) {
+      console.error(`❌ ${api.name} API失败:`, error.message);
+      if (i === apis.length - 1) {
+        // 最后一个API也失败了
+        throw error;
+      }
+      // 继续尝试下一个API
+    }
+  }
+  
+  throw new Error('所有AI API都失败了');
+}
 
 // 生成备用题目（当AI失败时使用）
 function generateFallbackQuestions(subject, count) {
@@ -933,58 +1015,11 @@ D. ${question.option_d}
 router.post('/generate-backup', authenticateToken, async (req, res) => {
   try {
     const { subject, count = 5 } = req.body;
-    
-    if (!DOUBAO_API_KEY) {
-      return res.status(400).json({ success: false, message: 'AI服务未配置' });
-    }
-    
-    const subjectName = SUBJECTS[subject]?.name || '408专业课';
     const limitCount = Math.min(Math.max(parseInt(count) || 5, 1), 10);
     
-    console.log(`🤖 备用接口生成${limitCount}道${subjectName}题目...`);
+    console.log(`🤖 备用接口生成${limitCount}道题目...`);
     
-    const response = await axios.post(
-      'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-      {
-        model: DOUBAO_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: `你是考研408出题专家。生成${limitCount}道${subjectName}选择题。
-
-返回JSON数组：
-[{"question":"题目","option_a":"A选项","option_b":"B选项","option_c":"C选项","option_d":"D选项","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]`
-          },
-          {
-            role: 'user',
-            content: `生成${limitCount}道${subjectName}选择题`
-          }
-        ],
-        temperature: 0.8,
-        max_tokens: 1000
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DOUBAO_API_KEY}`
-        },
-        timeout: 15000
-      }
-    );
-
-    const content = response.data.choices[0]?.message?.content || '';
-    
-    // 解析JSON
-    let generatedQuestions = [];
-    try {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        generatedQuestions = JSON.parse(jsonMatch[0]);
-      }
-    } catch (e) {
-      console.error('解析失败:', e);
-      return res.status(500).json({ success: false, message: '生成失败' });
-    }
+    const generatedQuestions = await callAIForQuestions(subject, limitCount);
     
     // 保存到数据库并返回
     const savedIds = [];
