@@ -72,6 +72,23 @@ async function initEnglishTables() {
       )
     `);
 
+    // 创建文章申请表
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS article_requests (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        user_id INT NOT NULL,
+        title VARCHAR(255),
+        content TEXT NOT NULL,
+        type ENUM('article', 'translation') DEFAULT 'article',
+        status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+        admin_note TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id),
+        INDEX idx_status (status)
+      )
+    `);
+
     // 检查是否有文章数据，没有则插入示例数据
     const [articles] = await pool.execute('SELECT COUNT(*) as count FROM reading_articles');
     if (articles[0].count === 0) {
@@ -459,6 +476,48 @@ router.post('/stats/quiz', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('更新统计失败:', error);
     res.status(500).json({ success: false, message: '更新失败' });
+  }
+});
+
+// ==================== 文章申请接口 ====================
+
+// 提交文章申请
+router.post('/request', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { title, content, type } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ success: false, message: '内容不能为空' });
+    }
+    
+    await pool.execute(`
+      INSERT INTO article_requests (user_id, title, content, type)
+      VALUES (?, ?, ?, ?)
+    `, [userId, title || '', content, type || 'article']);
+    
+    res.json({ success: true, message: '申请已提交，等待审核' });
+  } catch (error) {
+    console.error('提交申请失败:', error);
+    res.status(500).json({ success: false, message: '提交失败' });
+  }
+});
+
+// 获取用户的申请列表
+router.get('/requests', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const [requests] = await pool.execute(`
+      SELECT * FROM article_requests
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `, [userId]);
+    
+    res.json({ success: true, data: requests });
+  } catch (error) {
+    console.error('获取申请列表失败:', error);
+    res.status(500).json({ success: false, message: '获取失败' });
   }
 });
 

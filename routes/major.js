@@ -34,6 +34,7 @@ async function init408Tables() {
         option_d VARCHAR(500) NOT NULL,
         answer CHAR(1) NOT NULL,
         explanation TEXT,
+        ai_analysis TEXT,
         difficulty VARCHAR(10) DEFAULT 'medium',
         source VARCHAR(100),
         year INT,
@@ -587,6 +588,100 @@ router.get('/wrong', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('获取错题失败:', error);
     res.status(500).json({ success: false, message: '获取失败' });
+  }
+});
+
+// AI解析题目
+router.post('/analysis', authenticateToken, async (req, res) => {
+  try {
+    const { questionId } = req.body;
+    
+    if (!DOUBAO_API_KEY) {
+      return res.status(400).json({ success: false, message: 'AI服务未配置' });
+    }
+    
+    // 获取题目信息
+    const [questions] = await pool.execute(
+      'SELECT * FROM major_questions WHERE id = ?',
+      [questionId]
+    );
+    
+    if (questions.length === 0) {
+      return res.status(404).json({ success: false, message: '题目不存在' });
+    }
+    
+    const question = questions[0];
+    
+    // 如果已有AI解析，直接返回
+    if (question.ai_analysis) {
+      return res.json({ 
+        success: true, 
+        data: { analysis: question.ai_analysis, cached: true }
+      });
+    }
+    
+    // 调用AI生成解析
+    const subjectName = SUBJECTS[question.subject]?.name || '专业课';
+    
+    const response = await axios.post(
+      'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      {
+        model: DOUBAO_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: `你是一个考研408专业课辅导老师，擅长深入浅出地讲解题目。请对题目进行详细解析，包括：
+1. 知识点分析
+2. 解题思路
+3. 易错点提醒
+4. 相关知识拓展
+
+要求：
+- 语言通俗易懂
+- 逻辑清晰
+- 重点突出`
+          },
+          {
+            role: 'user',
+            content: `请详细解析这道${subjectName}题目：
+
+题目：${question.question}
+A. ${question.option_a}
+B. ${question.option_b}
+C. ${question.option_c}
+D. ${question.option_d}
+
+正确答案：${question.answer}
+${question.explanation ? '参考解析：' + question.explanation : ''}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        },
+        timeout: 60000
+      }
+    );
+
+    const analysis = response.data.choices[0]?.message?.content || '';
+    
+    // 保存AI解析到数据库
+    await pool.execute(
+      'UPDATE major_questions SET ai_analysis = ? WHERE id = ?',
+      [analysis, questionId]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: { analysis, cached: false }
+    });
+  } catch (error) {
+    console.error('AI解析失败:', error);
+    res.status(500).json({ success: false, message: '解析失败' });
   }
 });
 
