@@ -78,6 +78,21 @@ async function init408Tables() {
     `);
     console.log('✅ user_major_stats 表创建成功');
 
+    // 安全添加ai_analysis字段（如果不存在）
+    try {
+      await pool.execute(`
+        ALTER TABLE major_questions 
+        ADD COLUMN ai_analysis TEXT AFTER explanation
+      `);
+      console.log('✅ ai_analysis 字段添加成功');
+    } catch (error) {
+      if (error.message.includes('Duplicate column name')) {
+        console.log('✅ ai_analysis 字段已存在');
+      } else {
+        console.log('⚠️ ai_analysis 字段添加失败:', error.message);
+      }
+    }
+
     // 检查是否有题目，没有则插入预置题目
     const [count] = await pool.execute('SELECT COUNT(*) as cnt FROM major_questions');
     console.log('📊 当前题目数量:', count[0].cnt);
@@ -320,21 +335,61 @@ router.get('/questions', authenticateToken, async (req, res) => {
     const { subject, count = 10, difficulty } = req.query;
     const limitCount = Math.min(Math.max(parseInt(count) || 10, 1), 50); // 限制1-50
     
-    let sql = 'SELECT * FROM major_questions WHERE 1=1';
-    const params = [];
+    let questions = [];
     
+    // 如果指定了科目，先从该科目抽取
     if (subject) {
-      sql += ' AND subject = ?';
-      params.push(subject);
+      let sql = 'SELECT * FROM major_questions WHERE subject = ?';
+      const params = [subject];
+      
+      if (difficulty) {
+        sql += ' AND difficulty = ?';
+        params.push(difficulty);
+      }
+      
+      sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
+      
+      const [subjectQuestions] = await pool.execute(sql, params);
+      questions = subjectQuestions;
+      
+      // 如果该科目题目不足，从其他科目补充
+      if (questions.length < limitCount) {
+        const remaining = limitCount - questions.length;
+        const usedIds = questions.map(q => q.id);
+        
+        let supplementSql = 'SELECT * FROM major_questions WHERE subject != ?';
+        const supplementParams = [subject];
+        
+        if (usedIds.length > 0) {
+          supplementSql += ` AND id NOT IN (${usedIds.map(() => '?').join(',')})`;
+          supplementParams.push(...usedIds);
+        }
+        
+        if (difficulty) {
+          supplementSql += ' AND difficulty = ?';
+          supplementParams.push(difficulty);
+        }
+        
+        supplementSql += ` ORDER BY RAND() LIMIT ${remaining}`;
+        
+        const [supplementQuestions] = await pool.execute(supplementSql, supplementParams);
+        questions = questions.concat(supplementQuestions);
+      }
+    } else {
+      // 没有指定科目，从所有科目中抽取
+      let sql = 'SELECT * FROM major_questions WHERE 1=1';
+      const params = [];
+      
+      if (difficulty) {
+        sql += ' AND difficulty = ?';
+        params.push(difficulty);
+      }
+      
+      sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
+      
+      const [allQuestions] = await pool.execute(sql, params);
+      questions = allQuestions;
     }
-    if (difficulty) {
-      sql += ' AND difficulty = ?';
-      params.push(difficulty);
-    }
-    
-    sql += ` ORDER BY RAND() LIMIT ${limitCount}`;
-    
-    const [questions] = await pool.execute(sql, params);
     
     // 不返回答案和解析
     const safeQuestions = questions.map(q => ({
@@ -630,33 +685,28 @@ router.post('/analysis', authenticateToken, async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: `你是一个考研408专业课辅导老师，擅长深入浅出地讲解题目。请对题目进行详细解析，包括：
-1. 知识点分析
+            content: `你是一个考研408专业课辅导老师。请简洁地解析题目，包括：
+1. 核心知识点
 2. 解题思路
-3. 易错点提醒
-4. 相关知识拓展
+3. 易错提醒
 
-要求：
-- 语言通俗易懂
-- 逻辑清晰
-- 重点突出`
+要求：简洁明了，300字以内。`
           },
           {
             role: 'user',
-            content: `请详细解析这道${subjectName}题目：
+            content: `解析这道${subjectName}题目：
 
-题目：${question.question}
+${question.question}
 A. ${question.option_a}
 B. ${question.option_b}
 C. ${question.option_c}
 D. ${question.option_d}
 
-正确答案：${question.answer}
-${question.explanation ? '参考解析：' + question.explanation : ''}`
+正确答案：${question.answer}`
           }
         ],
         temperature: 0.7,
-        max_tokens: 1000
+        max_tokens: 500
       },
       {
         headers: {
