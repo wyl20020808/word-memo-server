@@ -6,7 +6,7 @@ const { pool } = require('../config/database');
 const router = express.Router();
 
 // 微信小程序配置
-const WX_APPID = process.env.WX_APPID || 'wx4eac6ffa18778ebe';
+const WX_APPID = process.env.WX_APPID || 'wx33b87738625a8459';
 const WX_SECRET = process.env.WX_SECRET || ''; // 需要在环境变量中配置
 
 // 微信登录
