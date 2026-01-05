@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
+const { callAI, parseAIJSON } = require('../services/aiService');
 
 const router = express.Router();
 
@@ -518,6 +519,178 @@ router.get('/requests', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('获取申请列表失败:', error);
     res.status(500).json({ success: false, message: '获取失败' });
+  }
+});
+
+// ==================== AI生成英语内容 ====================
+
+// AI生成新的阅读文章
+router.post('/generate-articles', authenticateToken, async (req, res) => {
+  try {
+    const { count = 3, difficulty = 'medium' } = req.body;
+    const limitCount = Math.min(Math.max(count, 1), 10); // 限制1-10篇
+
+    console.log(`🤖 开始生成${limitCount}篇${difficulty}难度的英语文章...`);
+
+    const messages = [
+      {
+        role: 'system',
+        content: `你是一位英语教学专家。请生成${limitCount}篇${difficulty}难度的英语阅读文章。
+
+返回JSON数组格式，每篇文章包含：
+[
+  {
+    "title": "文章标题",
+    "difficulty": "${difficulty}",
+    "word_count": 数字,
+    "read_time": 分钟数,
+    "preview": "文章预览（50字以内）",
+    "content_en": "完整英文内容（200-400字）",
+    "content_zh": "完整中文翻译"
+  }
+]
+
+要求：
+1. 文章内容真实有趣，适合英语学习者
+2. 难度等级：easy(简单)、medium(中等)、hard(困难)
+3. 英文内容清晰流畅，中文翻译准确
+4. 每篇文章200-400字`
+      },
+      {
+        role: 'user',
+        content: `请生成${limitCount}篇${difficulty}难度的英语阅读文章`
+      }
+    ];
+
+    const content = await callAI(messages, { 
+      temperature: 0.8, 
+      maxTokens: 3000 
+    });
+    
+    const articles = parseAIJSON(content);
+    
+    if (!articles || !Array.isArray(articles) || articles.length === 0) {
+      throw new Error('AI生成失败或返回格式不正确');
+    }
+
+    // 保存到数据库
+    const savedArticles = [];
+    for (const article of articles) {
+      try {
+        const [result] = await pool.execute(`
+          INSERT INTO reading_articles (title, difficulty, word_count, read_time, preview, content_en, content_zh)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          article.title || '无标题',
+          article.difficulty || difficulty,
+          article.word_count || 250,
+          article.read_time || 5,
+          article.preview || '',
+          article.content_en || '',
+          article.content_zh || ''
+        ]);
+
+        savedArticles.push({
+          id: result.insertId,
+          title: article.title,
+          difficulty: article.difficulty || difficulty,
+          word_count: article.word_count || 250,
+          read_time: article.read_time || 5,
+          preview: article.preview,
+          content_en: article.content_en,
+          content_zh: article.content_zh
+        });
+      } catch (dbError) {
+        console.error('保存文章失败:', dbError);
+      }
+    }
+
+    console.log(`✅ 成功生成并保存${savedArticles.length}篇文章`);
+    res.json({ success: true, data: savedArticles, message: `成功生成${savedArticles.length}篇文章` });
+  } catch (error) {
+    console.error('AI生成文章失败:', error);
+    res.status(500).json({ success: false, message: '生成失败，请稍后重试' });
+  }
+});
+
+// AI生成新的翻译句子
+router.post('/generate-sentences', authenticateToken, async (req, res) => {
+  try {
+    const { count = 5, difficulty = 'medium' } = req.body;
+    const limitCount = Math.min(Math.max(count, 1), 15); // 限制1-15句
+
+    console.log(`🤖 开始生成${limitCount}个${difficulty}难度的英语长难句...`);
+
+    const messages = [
+      {
+        role: 'system',
+        content: `你是一位考研英语专家。请生成${limitCount}个${difficulty}难度的英语长难句翻译练习。
+
+返回JSON数组格式：
+[
+  {
+    "english": "英文句子",
+    "chinese": "中文翻译",
+    "analysis": "语法分析和翻译技巧",
+    "difficulty": "${difficulty}"
+  }
+]
+
+要求：
+1. 英文句子来自真实的英文文献或考研真题
+2. 难度等级：easy(简单)、medium(中等)、hard(困难)
+3. 中文翻译准确、自然
+4. 语法分析详细，指出关键语法点
+5. 每个句子20-40个单词`
+      },
+      {
+        role: 'user',
+        content: `请生成${limitCount}个${difficulty}难度的英语长难句翻译练习`
+      }
+    ];
+
+    const content = await callAI(messages, { 
+      temperature: 0.8, 
+      maxTokens: 2500 
+    });
+    
+    const sentences = parseAIJSON(content);
+    
+    if (!sentences || !Array.isArray(sentences) || sentences.length === 0) {
+      throw new Error('AI生成失败或返回格式不正确');
+    }
+
+    // 保存到数据库
+    const savedSentences = [];
+    for (const sentence of sentences) {
+      try {
+        const [result] = await pool.execute(`
+          INSERT INTO translation_sentences (english, chinese, analysis, difficulty, source)
+          VALUES (?, ?, ?, ?, 'AI生成')
+        `, [
+          sentence.english || '',
+          sentence.chinese || '',
+          sentence.analysis || '',
+          sentence.difficulty || difficulty
+        ]);
+
+        savedSentences.push({
+          id: result.insertId,
+          english: sentence.english,
+          chinese: sentence.chinese,
+          analysis: sentence.analysis,
+          difficulty: sentence.difficulty || difficulty
+        });
+      } catch (dbError) {
+        console.error('保存句子失败:', dbError);
+      }
+    }
+
+    console.log(`✅ 成功生成并保存${savedSentences.length}个句子`);
+    res.json({ success: true, data: savedSentences, message: `成功生成${savedSentences.length}个句子` });
+  } catch (error) {
+    console.error('AI生成句子失败:', error);
+    res.status(500).json({ success: false, message: '生成失败，请稍后重试' });
   }
 });
 
