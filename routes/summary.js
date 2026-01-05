@@ -90,7 +90,7 @@ router.get('/progress/today', authenticateToken, async (req, res) => {
     // 获取单词学习数据
     const [wordStats] = await pool.execute(`
       SELECT COUNT(*) as today_words FROM user_word_records 
-      WHERE user_id = ? AND DATE(learned_at) = ?
+      WHERE user_id = ? AND DATE(last_learned_at) = ?
     `, [userId, today]);
 
     const progressMap = {};
