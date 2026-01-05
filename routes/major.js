@@ -19,7 +19,9 @@ const SUBJECTS = {
 // 初始化408题库表
 async function init408Tables() {
   try {
-    // 题目表 - 使用VARCHAR代替ENUM以提高兼容性
+    console.log('🔄 开始初始化408专业课表...');
+    
+    // 题目表
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS major_questions (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -77,16 +79,20 @@ async function init408Tables() {
 
     // 检查是否有题目，没有则插入预置题目
     const [count] = await pool.execute('SELECT COUNT(*) as cnt FROM major_questions');
+    console.log('📊 当前题目数量:', count[0].cnt);
     if (count[0].cnt === 0) {
       await insertPresetQuestions();
     }
 
     console.log('✅ 408专业课题库表初始化完成');
   } catch (error) {
-    console.error('初始化408表失败:', error.message);
-    console.error('错误详情:', error);
+    console.error('❌ 初始化408表失败:', error.message);
+    console.error('错误堆栈:', error.stack);
   }
 }
+
+// 直接初始化
+init408Tables();
 
 // 插入预置的408真题
 async function insertPresetQuestions() {
