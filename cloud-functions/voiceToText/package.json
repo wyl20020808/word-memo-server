@@ -1,0 +1,12 @@
+{
+  "name": "voiceToText",
+  "version": "1.0.0",
+  "description": "微信云函数：语音识别",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "wx-server-sdk": "~2.6.3"
+  }
+}

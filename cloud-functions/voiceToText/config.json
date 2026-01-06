@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "openapi": [
+      "cos"
+    ]
+  },
+  "runtime": "Nodejs18",
+  "memorySize": 256,
+  "timeout": 60,
+  "environment": {
+    "variables": {
+      "BAIDU_API_KEY": "${BAIDU_API_KEY}",
+      "BAIDU_SECRET_KEY": "${BAIDU_SECRET_KEY}"
+    }
+  }
+}
