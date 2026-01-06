@@ -84,7 +84,7 @@ router.post('/login', async (req, res) => {
     
     // 查找或创建用户
     let [users] = await pool.execute(
-      'SELECT * FROM users WHERE openid = ?',
+      'SELECT id, openid, nickname, avatar_url FROM users WHERE openid = ?',
       [openid]
     );
     
@@ -117,6 +117,7 @@ router.post('/login', async (req, res) => {
       console.log('✅ 创建新用户成功:', user.id);
     } else {
       user = users[0];
+      console.log('👤 用户对象:', user);
       
       // 更新用户信息
       try {
