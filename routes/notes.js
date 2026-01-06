@@ -1,17 +1,17 @@
 const express = require('express');
 const { pool } = require('../config/database');
 const { callAI, parseAIJSON } = require('../services/aiService');
-const { authMiddleware } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
 // 所有路由需要登录
-router.use(authMiddleware);
+router.use(authenticateToken);
 
 // 添加记录（不做AI分析，直接保存）
 router.post('/add', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const { content, category } = req.body;
 
     if (!content || content.trim().length === 0) {
@@ -42,7 +42,7 @@ router.post('/add', async (req, res) => {
 // 更新记录
 router.put('/:id', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const noteId = req.params.id;
     const { content, category } = req.body;
 
@@ -66,7 +66,7 @@ router.put('/:id', async (req, res) => {
 // 获取记录列表
 router.get('/list', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const limit = parseInt(req.query.limit) || 50;
 
     const [notes] = await pool.execute(
@@ -96,7 +96,7 @@ router.get('/list', async (req, res) => {
 // 删除记录
 router.delete('/:id', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
     const noteId = req.params.id;
 
     await pool.execute(
@@ -115,7 +115,7 @@ router.delete('/:id', async (req, res) => {
 // 获取AI分析结果（最近一次）
 router.get('/analysis', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     const [results] = await pool.execute(
       `SELECT id, summary, key_points, suggestions, analyzed_at 
@@ -151,7 +151,7 @@ router.get('/analysis', async (req, res) => {
 // 手动触发AI分析（分析近期所有记录）
 router.post('/analyze', async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user.userId;
 
     // 获取最近7天的记录
     const [notes] = await pool.execute(
