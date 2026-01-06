@@ -1,13 +1,21 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const https = require('https');
 const { pool } = require('../config/database');
 
 const router = express.Router();
 
 // 微信小程序配置
 const WX_APPID = process.env.WX_APPID || 'wx33b87738625a8459';
-const WX_SECRET = process.env.WX_SECRET || ''; // 需要在环境变量中配置
+const WX_SECRET = process.env.WX_SECRET || '';
+
+// 创建一个忽略SSL证书验证的axios实例（用于微信云托管环境）
+const wxAxios = axios.create({
+  httpsAgent: new https.Agent({
+    rejectUnauthorized: false
+  })
+});
 
 // 微信登录
 router.post('/login', async (req, res) => {
@@ -35,7 +43,7 @@ router.post('/login', async (req, res) => {
         console.log('🔑 AppID:', WX_APPID);
         console.log('🔑 Secret:', WX_SECRET ? '已配置' : '未配置');
         
-        const wxRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
+        const wxRes = await wxAxios.get('https://api.weixin.qq.com/sns/jscode2session', {
           params: {
             appid: WX_APPID,
             secret: WX_SECRET,
