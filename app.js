@@ -12,6 +12,7 @@ const englishRoutes = require('./routes/english');
 const summaryRoutes = require('./routes/summary');
 const majorRoutes = require('./routes/major');
 const voiceRoutes = require('./routes/voice');
+const notesRoutes = require('./routes/notes');
 
 const app = express();
 const PORT = process.env.PORT || 80; // 微信云托管使用80端口
@@ -31,6 +32,7 @@ app.use('/api/english', englishRoutes);
 app.use('/api/summary', summaryRoutes);
 app.use('/api/major', majorRoutes);
 app.use('/api/voice', voiceRoutes);
+app.use('/api/notes', notesRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {
