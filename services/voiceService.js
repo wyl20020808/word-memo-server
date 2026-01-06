@@ -136,11 +136,27 @@ class VoiceService {
               console.log('📥 收到识别响应');
               const resultData = JSON.parse(result);
 
-              console.log('📊 识别结果:', resultData);
+              console.log('📊 识别结果:', JSON.stringify(resultData));
 
               // 检查是否有错误
               if (resultData.err_no !== 0) {
-                console.error('❌ 百度API错误:', resultData.err_msg);
+                console.error('❌ 百度API错误码:', resultData.err_no, '错误信息:', resultData.err_msg);
+                // 常见错误码说明
+                const errorMessages = {
+                  3300: '输入参数不正确',
+                  3301: '音频质量过差',
+                  3302: '鉴权失败',
+                  3303: '语音服务器后端问题',
+                  3304: '用户的请求QPS超限',
+                  3305: '用户的日pv超限',
+                  3307: '语音服务器后端识别出错问题',
+                  3308: '音频过长',
+                  3309: '音频数据问题',
+                  3310: '输入的音频文件过大',
+                  3311: '采样率rate参数不在选项里',
+                  3312: '音频格式format参数不在选项里'
+                };
+                console.error('❌ 错误说明:', errorMessages[resultData.err_no] || '未知错误');
                 resolve(''); // 返回空字符串而不是抛出错误
                 return;
               }
