@@ -224,14 +224,123 @@ class VoiceService {
    */
   async recognizeFromBase64(base64Audio) {
     try {
-      console.log('🔄 解码Base64音频...');
+      console.log('🔄 处理Base64音频...');
+      console.log('📊 Base64数据长度:', base64Audio.length, '字符');
       
-      const audioBuffer = Buffer.from(base64Audio, 'base64');
-      console.log('✅ 解码成功，大小:', audioBuffer.length, '字节');
-      
-      return await this.recognizeAudio(audioBuffer);
+      // 直接使用base64数据调用百度API
+      return await this.recognizeAudioBase64(base64Audio);
     } catch (error) {
-      console.error('❌ 解码Base64失败:', error.message);
+      console.error('❌ 识别Base64音频失败:', error.message);
+      return '';
+    }
+  }
+
+  /**
+   * 直接使用Base64数据调用百度语音识别API
+   * @param {string} base64Audio - Base64编码的音频数据
+   * @returns {Promise<string>} 识别结果文本
+   */
+  async recognizeAudioBase64(base64Audio) {
+    try {
+      console.log('🎤 开始语音识别(Base64)...');
+
+      // 获取访问令牌
+      const accessToken = await this.getAccessToken();
+
+      // 计算音频长度（base64解码后的字节数）
+      const audioLen = Math.floor(base64Audio.length * 3 / 4);
+      console.log('📊 音频大小约:', audioLen, '字节');
+
+      // 调用语音识别API
+      const postData = JSON.stringify({
+        speech: base64Audio,
+        format: 'wav',
+        rate: 16000,
+        channel: 1,
+        len: audioLen,
+        cuid: 'wechat-mini-program',
+        token: accessToken
+      });
+
+      console.log('📤 发送识别请求...');
+
+      return new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'vop.baidu.com',
+          path: '/server_api',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+          },
+          timeout: 30000
+        };
+
+        const req = https.request(options, (res) => {
+          let result = '';
+          
+          res.on('data', chunk => result += chunk);
+          
+          res.on('end', () => {
+            try {
+              console.log('📥 收到识别响应');
+              const resultData = JSON.parse(result);
+
+              console.log('📊 识别结果:', JSON.stringify(resultData));
+
+              if (resultData.err_no !== 0) {
+                console.error('❌ 百度API错误码:', resultData.err_no, '错误信息:', resultData.err_msg);
+                const errorMessages = {
+                  3300: '输入参数不正确',
+                  3301: '音频质量过差',
+                  3302: '鉴权失败',
+                  3303: '语音服务器后端问题',
+                  3304: '用户的请求QPS超限',
+                  3305: '用户的日pv超限',
+                  3307: '语音服务器后端识别出错问题',
+                  3308: '音频过长',
+                  3309: '音频数据问题',
+                  3310: '输入的音频文件过大',
+                  3311: '采样率rate参数不在选项里',
+                  3312: '音频格式format参数不在选项里'
+                };
+                console.error('❌ 错误说明:', errorMessages[resultData.err_no] || '未知错误');
+                resolve('');
+                return;
+              }
+
+              if (resultData.result && resultData.result.length > 0) {
+                const text = resultData.result[0];
+                console.log('✅ 识别成功:', text);
+                resolve(text);
+              } else {
+                console.log('⚠️ 无识别结果');
+                resolve('');
+              }
+            } catch (e) {
+              console.error('❌ 解析识别响应失败:', e.message);
+              resolve('');
+            }
+          });
+        });
+
+        req.on('error', (e) => {
+          console.error('❌ 识别请求失败:', e.message);
+          resolve('');
+        });
+
+        req.on('timeout', () => {
+          console.error('❌ 识别请求超时');
+          req.destroy();
+          resolve('');
+        });
+
+        req.write(postData);
+        req.end();
+      });
+
+    } catch (error) {
+      console.error('❌ 语音识别异常:', error.message);
       return '';
     }
   }
