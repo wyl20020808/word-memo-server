@@ -8,8 +8,8 @@ const router = express.Router();
 // 所有路由需要登录
 router.use(authMiddleware);
 
-// AI分析笔记内容
-router.post('/analyze', async (req, res) => {
+// 添加记录（不做AI分析，直接保存）
+router.post('/add', async (req, res) => {
   try {
     const userId = req.userId;
     const { content, category } = req.body;
@@ -18,108 +18,59 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ success: false, message: '内容不能为空' });
     }
 
-    console.log('📝 开始分析笔记，用户:', userId);
-    console.log('📝 内容长度:', content.length);
-    console.log('📝 指定分类:', category || '自动识别');
-
-    // 构建AI提示词
-    const systemPrompt = `你是一个智能笔记分析助手。用户会输入各种内容（可能是游戏复盘、学习总结、工作记录、生活感悟等），你需要：
-
-1. 自动识别内容的类别（可以有多个类别）
-2. 提取关键要点
-3. 生成简洁的摘要
-4. 给出有价值的建议
-
-请以JSON格式返回，格式如下：
-{
-  "categories": ["类别1", "类别2"],
-  "summary": "一段简洁的摘要，概括用户记录的主要内容",
-  "keyPoints": ["要点1", "要点2", "要点3"],
-  "suggestions": ["建议1", "建议2"]
-}
-
-类别可选项：
-- 🎮 游戏复盘
-- 📚 学习总结
-- 💼 工作记录
-- 💪 健身运动
-- 💰 理财投资
-- 🎯 目标计划
-- 💭 生活感悟
-- 🔧 技术笔记
-
-注意：
-- 摘要要简洁有力，不超过100字
-- 关键要点3-5个，每个不超过30字
-- 建议要具体可行，2-3条
-- 如果内容涉及游戏（如云顶之弈、王者荣耀等），要给出针对性的游戏建议
-- 如果内容涉及学习，要给出学习方法建议
-- 只返回JSON，不要其他内容`;
-
-    const userPrompt = category 
-      ? `用户指定分类为"${category}"，请分析以下内容：\n\n${content}`
-      : `请分析以下内容：\n\n${content}`;
-
-    // 调用AI
-    const aiResponse = await callAI([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ], {
-      temperature: 0.7,
-      maxTokens: 1000
-    });
-
-    // 解析AI返回的JSON
-    const analysisResult = parseAIJSON(aiResponse);
-
-    if (!analysisResult) {
-      throw new Error('AI返回格式错误');
-    }
-
-    console.log('✅ AI分析完成:', analysisResult);
-
-    // 保存到数据库
     const [result] = await pool.execute(
-      `INSERT INTO ai_notes (user_id, original_content, categories, summary, key_points, suggestions) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        content,
-        JSON.stringify(analysisResult.categories || []),
-        analysisResult.summary || '',
-        JSON.stringify(analysisResult.keyPoints || []),
-        JSON.stringify(analysisResult.suggestions || [])
-      ]
+      `INSERT INTO ai_notes (user_id, original_content, category) VALUES (?, ?, ?)`,
+      [userId, content.trim(), category || '']
     );
-
-    console.log('✅ 笔记已保存，ID:', result.insertId);
 
     res.json({
       success: true,
       data: {
         id: result.insertId,
-        originalContent: content,
-        categories: analysisResult.categories || [],
-        summary: analysisResult.summary || '',
-        keyPoints: analysisResult.keyPoints || [],
-        suggestions: analysisResult.suggestions || []
+        content: content.trim(),
+        category: category || '',
+        created_at: new Date()
       }
     });
 
   } catch (error) {
-    console.error('❌ 分析笔记失败:', error);
-    res.status(500).json({ success: false, message: '分析失败: ' + error.message });
+    console.error('❌ 添加记录失败:', error);
+    res.status(500).json({ success: false, message: '添加失败' });
   }
 });
 
-// 获取笔记列表
+// 更新记录
+router.put('/:id', async (req, res) => {
+  try {
+    const userId = req.userId;
+    const noteId = req.params.id;
+    const { content, category } = req.body;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ success: false, message: '内容不能为空' });
+    }
+
+    await pool.execute(
+      `UPDATE ai_notes SET original_content = ?, category = ? WHERE id = ? AND user_id = ?`,
+      [content.trim(), category || '', noteId, userId]
+    );
+
+    res.json({ success: true, message: '更新成功' });
+
+  } catch (error) {
+    console.error('❌ 更新记录失败:', error);
+    res.status(500).json({ success: false, message: '更新失败' });
+  }
+});
+
+// 获取记录列表
 router.get('/list', async (req, res) => {
   try {
     const userId = req.userId;
     const limit = parseInt(req.query.limit) || 50;
 
     const [notes] = await pool.execute(
-      `SELECT id, original_content, categories, summary, key_points, suggestions, created_at 
+      `SELECT id, original_content, category, created_at 
        FROM ai_notes 
        WHERE user_id = ? 
        ORDER BY created_at DESC 
@@ -127,26 +78,22 @@ router.get('/list', async (req, res) => {
       [userId, limit]
     );
 
-    // 格式化数据
     const formattedNotes = notes.map(note => ({
       id: note.id,
-      originalContent: note.original_content,
-      categories: JSON.parse(note.categories || '[]'),
-      summary: note.summary,
-      keyPoints: JSON.parse(note.key_points || '[]'),
-      suggestions: JSON.parse(note.suggestions || '[]'),
+      content: note.original_content,
+      category: note.category || '',
       created_at: note.created_at
     }));
 
     res.json({ success: true, data: formattedNotes });
 
   } catch (error) {
-    console.error('❌ 获取笔记列表失败:', error);
+    console.error('❌ 获取记录列表失败:', error);
     res.status(500).json({ success: false, message: '获取失败' });
   }
 });
 
-// 删除笔记
+// 删除记录
 router.delete('/:id', async (req, res) => {
   try {
     const userId = req.userId;
@@ -160,51 +107,130 @@ router.delete('/:id', async (req, res) => {
     res.json({ success: true, message: '删除成功' });
 
   } catch (error) {
-    console.error('❌ 删除笔记失败:', error);
+    console.error('❌ 删除记录失败:', error);
     res.status(500).json({ success: false, message: '删除失败' });
   }
 });
 
-// 获取笔记统计
-router.get('/stats', async (req, res) => {
+// 获取AI分析结果（最近一次）
+router.get('/analysis', async (req, res) => {
   try {
     const userId = req.userId;
 
-    const [stats] = await pool.execute(
-      `SELECT 
-        COUNT(*) as totalNotes,
-        COUNT(DISTINCT DATE(created_at)) as activeDays
-       FROM ai_notes 
-       WHERE user_id = ?`,
+    const [results] = await pool.execute(
+      `SELECT id, summary, key_points, suggestions, analyzed_at 
+       FROM ai_notes_analysis 
+       WHERE user_id = ? 
+       ORDER BY analyzed_at DESC 
+       LIMIT 1`,
       [userId]
     );
 
-    // 获取分类统计
-    const [categoryStats] = await pool.execute(
-      `SELECT categories FROM ai_notes WHERE user_id = ?`,
-      [userId]
-    );
+    if (results.length === 0) {
+      return res.json({ success: true, data: null });
+    }
 
-    const categoryCount = {};
-    categoryStats.forEach(row => {
-      const cats = JSON.parse(row.categories || '[]');
-      cats.forEach(cat => {
-        categoryCount[cat] = (categoryCount[cat] || 0) + 1;
-      });
-    });
-
+    const analysis = results[0];
     res.json({
       success: true,
       data: {
-        totalNotes: stats[0].totalNotes,
-        activeDays: stats[0].activeDays,
-        categoryCount
+        id: analysis.id,
+        summary: analysis.summary,
+        keyPoints: JSON.parse(analysis.key_points || '[]'),
+        suggestions: JSON.parse(analysis.suggestions || '[]'),
+        analyzedAt: analysis.analyzed_at
       }
     });
 
   } catch (error) {
-    console.error('❌ 获取统计失败:', error);
+    console.error('❌ 获取分析结果失败:', error);
     res.status(500).json({ success: false, message: '获取失败' });
+  }
+});
+
+// 手动触发AI分析（分析近期所有记录）
+router.post('/analyze', async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // 获取最近7天的记录
+    const [notes] = await pool.execute(
+      `SELECT original_content, category, created_at 
+       FROM ai_notes 
+       WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    if (notes.length === 0) {
+      return res.status(400).json({ success: false, message: '没有可分析的记录' });
+    }
+
+    console.log('📝 开始AI分析，用户:', userId, '记录数:', notes.length);
+
+    // 构建内容
+    const contentList = notes.map((note, i) => {
+      const date = new Date(note.created_at).toLocaleDateString('zh-CN');
+      return `[${date}] ${note.category ? `(${note.category}) ` : ''}${note.original_content}`;
+    }).join('\n\n');
+
+    // AI分析
+    const systemPrompt = `你是一个智能复盘分析助手。用户会提供近期的多条记录，你需要综合分析这些内容，给出：
+
+1. 整体总结：概括用户近期的主要活动和状态
+2. 关键发现：从记录中提取的重要信息和规律
+3. 改进建议：针对性的建议
+
+请以JSON格式返回：
+{
+  "summary": "整体总结，200字以内",
+  "keyPoints": ["发现1", "发现2", "发现3"],
+  "suggestions": ["建议1", "建议2", "建议3"]
+}
+
+注意：
+- 总结要有洞察力，不是简单罗列
+- 发现要有价值，能帮助用户认识自己
+- 建议要具体可行
+- 只返回JSON`;
+
+    const aiResponse = await callAI([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `请分析以下${notes.length}条近期记录：\n\n${contentList}` }
+    ], { temperature: 0.7, maxTokens: 1500 });
+
+    const result = parseAIJSON(aiResponse);
+    if (!result) {
+      throw new Error('AI返回格式错误');
+    }
+
+    // 保存分析结果
+    await pool.execute(
+      `INSERT INTO ai_notes_analysis (user_id, summary, key_points, suggestions, notes_count) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        userId,
+        result.summary || '',
+        JSON.stringify(result.keyPoints || []),
+        JSON.stringify(result.suggestions || []),
+        notes.length
+      ]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        summary: result.summary,
+        keyPoints: result.keyPoints || [],
+        suggestions: result.suggestions || [],
+        notesCount: notes.length,
+        analyzedAt: new Date()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ AI分析失败:', error);
+    res.status(500).json({ success: false, message: '分析失败: ' + error.message });
   }
 });
 
