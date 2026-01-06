@@ -18,8 +18,8 @@ const PORT = process.env.PORT || 80; // 微信云托管使用80端口
 
 // 中间件
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' })); // 增加请求体大小限制，支持语音文件上传
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 路由
 app.use('/api/auth', authRoutes);
