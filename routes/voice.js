@@ -46,15 +46,19 @@ router.post('/recognize', authenticateToken, async (req, res) => {
       console.log('✅ 识别成功:', text);
       res.json({
         success: true,
-        text: text,
-        message: '识别成功'
+        data: {
+          text: text,
+          message: '识别成功'
+        }
       });
     } else {
       console.log('⚠️ 识别失败或无结果');
       res.json({
-        success: false,
-        text: '',
-        message: '无法识别，请重试'
+        success: true,
+        data: {
+          text: '',
+          message: '无法识别，请重试'
+        }
       });
     }
 
@@ -86,8 +90,10 @@ router.get('/validate', async (req, res) => {
 
     res.json({
       success: true,
-      valid: result.valid,
-      message: result.message
+      data: {
+        valid: result.valid,
+        message: result.message
+      }
     });
 
   } catch (error) {
@@ -119,14 +125,18 @@ router.get('/status', async (req, res) => {
     if (result.valid) {
       res.json({
         success: true,
-        status: 'ready',
-        message: '语音识别服务就绪'
+        data: {
+          status: 'ready',
+          message: '语音识别服务就绪'
+        }
       });
     } else {
       res.json({
         success: true,
-        status: 'error',
-        message: '语音识别服务不可用: ' + result.message
+        data: {
+          status: 'error',
+          message: '语音识别服务不可用: ' + result.message
+        }
       });
     }
 
