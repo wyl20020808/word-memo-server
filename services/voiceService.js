@@ -247,14 +247,19 @@ class VoiceService {
       // 获取访问令牌
       const accessToken = await this.getAccessToken();
 
-      // 计算音频长度（base64解码后的字节数）
-      const audioLen = Math.floor(base64Audio.length * 3 / 4);
-      console.log('📊 音频大小约:', audioLen, '字节');
+      // 解码base64获取实际字节数
+      const audioBuffer = Buffer.from(base64Audio, 'base64');
+      const audioLen = audioBuffer.length;
+      console.log('📊 音频实际大小:', audioLen, '字节');
+      
+      // 重新编码为标准base64（确保没有换行符等）
+      const cleanBase64 = audioBuffer.toString('base64');
+      console.log('📊 清理后Base64长度:', cleanBase64.length, '字符');
 
-      // 调用语音识别API
+      // 调用语音识别API - 使用pcm格式（微信录音wav实际是pcm）
       const postData = JSON.stringify({
-        speech: base64Audio,
-        format: 'wav',
+        speech: cleanBase64,
+        format: 'pcm',  // 改为pcm格式
         rate: 16000,
         channel: 1,
         len: audioLen,
@@ -262,7 +267,7 @@ class VoiceService {
         token: accessToken
       });
 
-      console.log('📤 发送识别请求...');
+      console.log('📤 发送识别请求，格式: pcm');
 
       return new Promise((resolve, reject) => {
         const options = {
