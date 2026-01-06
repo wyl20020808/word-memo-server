@@ -19,9 +19,22 @@ router.post('/login', async (req, res) => {
     let openid;
     let sessionKey;
     
+    // 检查WX_SECRET是否配置
+    if (!WX_SECRET) {
+      console.error('❌ WX_SECRET未配置！请在环境变量中配置');
+      return res.status(500).json({
+        success: false,
+        message: '服务器配置错误：WX_SECRET未配置'
+      });
+    }
+    
     // 如果有code，调用微信接口获取openid
-    if (code && WX_SECRET) {
+    if (code) {
       try {
+        console.log('🔑 调用微信接口获取openid...');
+        console.log('🔑 AppID:', WX_APPID);
+        console.log('🔑 Secret:', WX_SECRET ? '已配置' : '未配置');
+        
         const wxRes = await axios.get('https://api.weixin.qq.com/sns/jscode2session', {
           params: {
             appid: WX_APPID,
@@ -36,20 +49,27 @@ router.post('/login', async (req, res) => {
         if (wxRes.data.openid) {
           openid = wxRes.data.openid;
           sessionKey = wxRes.data.session_key;
+          console.log('✅ 获取openid成功:', openid);
         } else {
-          console.error('微信登录失败:', wxRes.data);
-          // 如果微信接口失败，使用code生成临时openid
-          openid = `wx_${code.substring(0, 16)}_${Date.now()}`;
+          console.error('❌ 微信登录失败:', wxRes.data);
+          return res.status(400).json({
+            success: false,
+            message: '微信登录失败: ' + (wxRes.data.errmsg || '未知错误')
+          });
         }
       } catch (wxError) {
-        console.error('调用微信接口失败:', wxError.message);
-        // 降级处理：使用code生成临时openid
-        openid = `wx_${code.substring(0, 16)}_${Date.now()}`;
+        console.error('❌ 调用微信接口失败:', wxError.message);
+        return res.status(500).json({
+          success: false,
+          message: '调用微信接口失败: ' + wxError.message
+        });
       }
     } else {
-      // 没有code或secret，生成临时openid（开发测试用）
-      openid = `demo_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      console.log('⚠️ 使用临时openid（未配置WX_SECRET）');
+      console.error('❌ 缺少code参数');
+      return res.status(400).json({
+        success: false,
+        message: '缺少code参数'
+      });
     }
     
     console.log('🔑 最终openid:', openid);
