@@ -257,21 +257,39 @@ class VoiceService {
       console.log('📊 清理后Base64长度:', cleanBase64.length, '字符');
 
       // 检测音频格式（通过文件头）
+      // 百度语音识别支持的格式: pcm, wav, amr, m4a (不支持mp3!)
       let format = 'pcm';
       if (audioBuffer.length > 4) {
-        const header = audioBuffer.slice(0, 4).toString('hex');
-        if (header.startsWith('fff') || header.startsWith('494433')) {
-          format = 'mp3';
-          console.log('📊 检测到MP3格式');
-        } else if (header === '52494646') {
+        const header = audioBuffer.slice(0, 12).toString('hex');
+        console.log('📊 音频文件头(hex):', header.substring(0, 24));
+        
+        if (header === '52494646') {
           format = 'wav';
           console.log('📊 检测到WAV格式');
+        } else if (header.startsWith('2321414d52')) {
+          format = 'amr';
+          console.log('📊 检测到AMR格式');
+        } else if (header.includes('66747970') || header.includes('4d344120')) {
+          // ftyp 或 M4A 标识
+          format = 'm4a';
+          console.log('📊 检测到M4A/AAC格式');
+        } else if (header.startsWith('fff') || header.startsWith('494433')) {
+          // MP3格式 - 百度不支持，需要转换或提示用户
+          console.log('⚠️ 检测到MP3格式，百度API不支持MP3！');
+          console.log('⚠️ 请在小程序端使用 format: "aac" 录音');
+          // 尝试用pcm格式发送（可能失败）
+          format = 'pcm';
         } else {
-          console.log('📊 未知格式，使用pcm，文件头:', header);
+          console.log('📊 未知格式，使用pcm，文件头:', header.substring(0, 16));
         }
       }
 
       // 调用语音识别API
+      // dev_pid 语言模型：
+      // 1537 - 普通话(支持简单英文)
+      // 1737 - 英语
+      // 1936 - 普通话远场
+      // 80001 - 普通话(极速版，需开通)
       const postData = JSON.stringify({
         speech: cleanBase64,
         format: format,
@@ -279,7 +297,8 @@ class VoiceService {
         channel: 1,
         len: audioLen,
         cuid: 'wechat-mini-program',
-        token: accessToken
+        token: accessToken,
+        dev_pid: 1537  // 普通话+简单英文混合识别
       });
 
       console.log('📤 发送识别请求，格式:', format);
