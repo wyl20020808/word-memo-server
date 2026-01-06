@@ -3,13 +3,76 @@
  */
 
 const express = require('express');
+const multer = require('multer');
 const voiceService = require('../services/voiceService');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
+// 配置multer用于文件上传
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB限制
+  }
+});
+
 /**
- * 语音识别接口
+ * 语音识别接口（文件上传方式）
+ * POST /api/voice/recognize-file
+ */
+router.post('/recognize-file', authenticateToken, upload.single('audio'), async (req, res) => {
+  try {
+    console.log('🎤 收到语音文件上传请求');
+    console.log('👤 用户ID:', req.user.userId);
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少音频文件'
+      });
+    }
+
+    console.log('📊 文件大小:', req.file.size, '字节');
+    console.log('📊 文件类型:', req.file.mimetype);
+
+    // 将文件buffer转为base64
+    const base64Audio = req.file.buffer.toString('base64');
+
+    // 调用语音识别服务
+    const text = await voiceService.recognizeFromBase64(base64Audio);
+
+    if (text) {
+      console.log('✅ 识别成功:', text);
+      res.json({
+        success: true,
+        data: {
+          text: text,
+          message: '识别成功'
+        }
+      });
+    } else {
+      console.log('⚠️ 识别失败或无结果');
+      res.json({
+        success: true,
+        data: {
+          text: '',
+          message: '无法识别，请重试'
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ 语音识别异常:', error.message);
+    res.status(500).json({
+      success: false,
+      message: '语音识别失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * 语音识别接口（Base64方式）
  * POST /api/voice/recognize
  * 
  * 请求体：
