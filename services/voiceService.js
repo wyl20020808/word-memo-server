@@ -7,12 +7,23 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
+// 默认凭证（当环境变量未配置时使用）
+const DEFAULT_BAIDU_API_KEY = 'T7JzBaLHKeuwSgAaomwzhpMF';
+const DEFAULT_BAIDU_SECRET_KEY = '2RZqmUgzTvNO9S3CyYWPAVr3Zr6Vz1JP';
+
 class VoiceService {
   constructor() {
-    this.baiduApiKey = process.env.BAIDU_API_KEY;
-    this.baiduSecretKey = process.env.BAIDU_SECRET_KEY;
     this.accessToken = null;
     this.tokenExpireTime = 0;
+  }
+
+  // 动态获取API凭证（优先使用环境变量，否则使用默认值）
+  get baiduApiKey() {
+    return process.env.BAIDU_API_KEY || DEFAULT_BAIDU_API_KEY;
+  }
+
+  get baiduSecretKey() {
+    return process.env.BAIDU_SECRET_KEY || DEFAULT_BAIDU_SECRET_KEY;
   }
 
   /**
