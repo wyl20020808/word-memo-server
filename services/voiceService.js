@@ -256,10 +256,25 @@ class VoiceService {
       const cleanBase64 = audioBuffer.toString('base64');
       console.log('📊 清理后Base64长度:', cleanBase64.length, '字符');
 
-      // 调用语音识别API - 使用pcm格式（微信录音wav实际是pcm）
+      // 检测音频格式（通过文件头）
+      let format = 'pcm';
+      if (audioBuffer.length > 4) {
+        const header = audioBuffer.slice(0, 4).toString('hex');
+        if (header.startsWith('fff') || header.startsWith('494433')) {
+          format = 'mp3';
+          console.log('📊 检测到MP3格式');
+        } else if (header === '52494646') {
+          format = 'wav';
+          console.log('📊 检测到WAV格式');
+        } else {
+          console.log('📊 未知格式，使用pcm，文件头:', header);
+        }
+      }
+
+      // 调用语音识别API
       const postData = JSON.stringify({
         speech: cleanBase64,
-        format: 'pcm',  // 改为pcm格式
+        format: format,
         rate: 16000,
         channel: 1,
         len: audioLen,
@@ -267,7 +282,7 @@ class VoiceService {
         token: accessToken
       });
 
-      console.log('📤 发送识别请求，格式: pcm');
+      console.log('📤 发送识别请求，格式:', format);
 
       return new Promise((resolve, reject) => {
         const options = {
