@@ -215,17 +215,21 @@ router.put('/userinfo', async (req, res) => {
     
     const { nickname, avatarUrl } = req.body;
     
+    console.log('📝 更新用户信息:', { userId: decoded.userId, nickname, avatarUrl: avatarUrl ? '有' : '无' });
+    
     await pool.execute(
       'UPDATE users SET nickname = ?, avatar_url = ? WHERE id = ?',
-      [nickname, avatarUrl, decoded.userId]
+      [nickname || '', avatarUrl || '', decoded.userId]
     );
+    
+    console.log('✅ 用户信息更新成功');
     
     res.json({
       success: true,
       message: '更新成功'
     });
   } catch (error) {
-    console.error('更新用户信息失败:', error);
+    console.error('❌ 更新用户信息失败:', error);
     res.status(500).json({ success: false, message: '更新失败' });
   }
 });
