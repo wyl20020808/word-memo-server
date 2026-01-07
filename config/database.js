@@ -47,7 +47,7 @@ async function createPool() {
   console.log('✅ 数据库创建/确认成功:', mysqlDb);
   await tempPool.end();
   
-  // 创建正式连接池
+  // 创建正式连接池 - 优化配置以处理长时间异步任务
   pool = mysql.createPool({
     host: host,
     user: mysqlUser,
@@ -57,7 +57,10 @@ async function createPool() {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    connectTimeout: 60000
+    connectTimeout: 60000,
+    // 连接保活配置
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000  // 10秒后开始保活
   });
   
   // 测试连接
@@ -66,6 +69,26 @@ async function createPool() {
   conn.release();
   
   return pool;
+}
+
+// 带重试的数据库执行函数
+async function executeWithRetry(sql, params, maxRetries = 3) {
+  let lastError;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await pool.execute(sql, params);
+    } catch (error) {
+      lastError = error;
+      // 如果是连接重置错误，等待后重试
+      if (error.code === 'ECONNRESET' || error.code === 'PROTOCOL_CONNECTION_LOST') {
+        console.log(`⚠️ 数据库连接重置，重试 ${i + 1}/${maxRetries}...`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
 // 创建表结构
@@ -376,6 +399,14 @@ const db = {
       throw new Error('数据库未初始化');
     }
     return await pool.execute(sql, params);
+  },
+  
+  // 带重试的执行（用于异步任务中的数据库操作）
+  async executeWithRetry(sql, params, maxRetries = 3) {
+    if (!pool) {
+      throw new Error('数据库未初始化');
+    }
+    return await executeWithRetry(sql, params, maxRetries);
   },
   
   async getConnection() {

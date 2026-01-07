@@ -218,9 +218,9 @@ async function performActivityAnalysis(notes) {
   };
 }
 
-// 保存分析结果到数据库
+// 保存分析结果到数据库（带重试）
 async function saveAnalysisResult(userId, analysisResult, notesCount) {
-  await pool.execute(
+  await pool.executeWithRetry(
     `INSERT INTO ai_notes_analysis 
      (user_id, summary, key_points, suggestions, activity_summary, activity_categories, recent_highlights, notes_count) 
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -241,26 +241,40 @@ async function saveAnalysisResult(userId, analysisResult, notesCount) {
 router.post('/analyze', async (req, res) => {
   try {
     const userId = req.user.userId;
+    console.log('📝 开始获取用户记录，用户ID:', userId);
 
     // 获取最近7天的记录
-    const [notes] = await pool.execute(
-      `SELECT original_content, category, created_at 
-       FROM ai_notes 
-       WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-       ORDER BY created_at DESC`,
-      [userId]
-    );
+    let notes;
+    try {
+      const [result] = await pool.execute(
+        `SELECT original_content, category, created_at 
+         FROM ai_notes 
+         WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+      notes = result;
+    } catch (dbError) {
+      console.error('❌ 数据库查询失败:', dbError.message);
+      return res.status(500).json({ success: false, message: '数据库查询失败' });
+    }
 
-    if (notes.length === 0) {
+    if (!notes || notes.length === 0) {
       return res.status(400).json({ success: false, message: '没有可分析的记录' });
     }
 
     console.log('📝 手动触发AI分析（异步模式），用户:', userId, '记录数:', notes.length);
 
-    // 创建异步任务
+    // 创建异步任务 - 复制notes数据避免引用问题
+    const notesCopy = notes.map(n => ({
+      original_content: n.original_content,
+      category: n.category,
+      created_at: n.created_at
+    }));
+
     const taskId = createTask(TaskType.NOTES_ANALYSIS, userId, async () => {
-      const analysisResult = await performActivityAnalysis(notes);
-      await saveAnalysisResult(userId, analysisResult, notes.length);
+      const analysisResult = await performActivityAnalysis(notesCopy);
+      await saveAnalysisResult(userId, analysisResult, notesCopy.length);
       
       return {
         summary: analysisResult.summary,
@@ -269,7 +283,7 @@ router.post('/analyze', async (req, res) => {
         activitySummary: analysisResult.activitySummary,
         activityCategories: analysisResult.activityCategories,
         recentHighlights: analysisResult.recentHighlights,
-        notesCount: notes.length,
+        notesCount: notesCopy.length,
         analyzedAt: new Date()
       };
     });
