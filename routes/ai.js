@@ -27,7 +27,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
-// 通用AI对话接口（支持多轮对话）
+// 通用AI对话接口（支持多轮对话）- 异步模式
 router.post('/conversation', authenticateToken, async (req, res) => {
   try {
     const { messages } = req.body;
@@ -37,8 +37,34 @@ router.post('/conversation', authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: '缺少对话消息' });
     }
 
-    console.log('🤖 通用AI对话，用户:', userId, '消息数:', messages.length);
+    // 生成任务ID
+    const taskId = `chat_${userId}_${Date.now()}`;
+    
+    console.log('🤖 通用AI对话，用户:', userId, '消息数:', messages.length, '任务ID:', taskId);
 
+    // 立即返回任务ID，让前端轮询
+    res.json({ 
+      success: true, 
+      data: { taskId, status: 'processing' }
+    });
+
+    // 异步处理AI请求
+    processAIConversation(taskId, messages, userId).catch(err => {
+      console.error('❌ AI对话处理失败:', err);
+    });
+
+  } catch (error) {
+    console.error('❌ AI对话失败:', error);
+    res.status(500).json({ success: false, message: 'AI服务暂时不可用: ' + error.message });
+  }
+});
+
+// AI对话结果缓存（简单内存缓存，生产环境建议用Redis）
+const aiResultCache = new Map();
+
+// 异步处理AI对话
+async function processAIConversation(taskId, messages, userId) {
+  try {
     // 构建系统提示词
     const systemPrompt = `你是一个智能助手，可以帮助用户：
 1. 分析和复盘日常事务
@@ -67,14 +93,52 @@ router.post('/conversation', authenticateToken, async (req, res) => {
       maxTokens: 1500
     });
 
+    // 存储结果
+    aiResultCache.set(taskId, {
+      status: 'completed',
+      reply: aiResponse,
+      completedAt: Date.now()
+    });
+
+    console.log('✅ AI对话完成，任务ID:', taskId);
+
+    // 5分钟后清理缓存
+    setTimeout(() => {
+      aiResultCache.delete(taskId);
+    }, 5 * 60 * 1000);
+
+  } catch (error) {
+    console.error('❌ AI处理失败:', error);
+    aiResultCache.set(taskId, {
+      status: 'failed',
+      error: error.message,
+      completedAt: Date.now()
+    });
+  }
+}
+
+// 查询AI对话结果
+router.get('/conversation/:taskId', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const result = aiResultCache.get(taskId);
+
+    if (!result) {
+      // 任务还在处理中或不存在
+      return res.json({ 
+        success: true, 
+        data: { status: 'processing' }
+      });
+    }
+
     res.json({ 
       success: true, 
-      data: { reply: aiResponse }
+      data: result
     });
 
   } catch (error) {
-    console.error('❌ AI对话失败:', error);
-    res.status(500).json({ success: false, message: 'AI服务暂时不可用: ' + error.message });
+    console.error('❌ 查询AI结果失败:', error);
+    res.status(500).json({ success: false, message: '查询失败' });
   }
 });
 
