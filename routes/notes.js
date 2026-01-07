@@ -154,6 +154,18 @@ router.get('/analysis', async (req, res) => {
 
     const analysis = results[0];
     
+    // 安全解析 JSON 字段
+    const safeParseJSON = (str, defaultVal = []) => {
+      if (!str) return defaultVal;
+      try {
+        const parsed = JSON.parse(str);
+        return Array.isArray(parsed) ? parsed : defaultVal;
+      } catch (e) {
+        // 如果不是有效JSON，可能是纯文本，转为数组
+        return typeof str === 'string' ? [str] : defaultVal;
+      }
+    };
+    
     // 计算分析结果的新鲜度
     const lastAnalyzed = new Date(analysis.analyzed_at);
     const now = new Date();
@@ -165,12 +177,12 @@ router.get('/analysis', async (req, res) => {
       data: {
         id: analysis.id,
         summary: analysis.summary,
-        keyPoints: JSON.parse(analysis.key_points || '[]'),
-        suggestions: JSON.parse(analysis.suggestions || '[]'),
+        keyPoints: safeParseJSON(analysis.key_points),
+        suggestions: safeParseJSON(analysis.suggestions),
         analyzedAt: analysis.analyzed_at,
         activitySummary: analysis.activity_summary || '',
-        activityCategories: JSON.parse(analysis.activity_categories || '[]'),
-        recentHighlights: JSON.parse(analysis.recent_highlights || '[]'),
+        activityCategories: safeParseJSON(analysis.activity_categories),
+        recentHighlights: safeParseJSON(analysis.recent_highlights),
         needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
       }
     });
