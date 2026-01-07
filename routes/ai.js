@@ -114,32 +114,39 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
-// ==================== AI单词补全 ====================
+// ==================== AI单词补全（异步轮询模式） ====================
 
 router.post('/complete-word', authenticateToken, async (req, res) => {
   try {
     const { word, phonetic, meaning } = req.body;
+    const userId = req.user.userId;
     console.log('🤖 AI补全请求:', word);
 
-    const result = await generateWordContent(word, phonetic, meaning);
+    // 创建异步任务
+    const taskId = createTask(TaskType.WORD_COMPLETE, userId, async () => {
+      const result = await generateWordContent(word, phonetic, meaning);
 
-    // 保存到数据库
-    if (result.examples && result.examples.length > 0) {
-      const exampleStr = result.examples.join('|||');
-      const transStr = result.translations.join('|||');
+      // 保存到数据库
+      if (result.examples && result.examples.length > 0) {
+        const exampleStr = result.examples.join('|||');
+        const transStr = result.translations.join('|||');
 
-      await pool.execute(
-        `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
-         VALUES (?, ?, ?, ?, ?, 'kaoyan') 
-         ON DUPLICATE KEY UPDATE 
-           example = VALUES(example),
-           example_trans = VALUES(example_trans),
-           updated_at = NOW()`,
-        [word, phonetic || '', exampleStr, transStr, meaning || '']
-      );
-    }
+        await pool.execute(
+          `INSERT INTO words (word, phonetic, example, example_trans, meaning, category) 
+           VALUES (?, ?, ?, ?, ?, 'kaoyan') 
+           ON DUPLICATE KEY UPDATE 
+             example = VALUES(example),
+             example_trans = VALUES(example_trans),
+             updated_at = NOW()`,
+          [word, phonetic || '', exampleStr, transStr, meaning || '']
+        );
+      }
 
-    res.json({ success: true, data: result });
+      return result;
+    });
+
+    // 立即返回任务ID
+    res.json({ success: true, data: { taskId, status: 'processing' } });
   } catch (error) {
     console.error('❌ AI补全失败:', error);
     res.status(500).json({ success: false, message: 'AI补全失败' });

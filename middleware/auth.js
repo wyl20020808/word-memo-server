@@ -8,12 +8,7 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
   
-  console.log('🔐 认证检查:');
-  console.log('  - Authorization头:', authHeader ? '存在' : '不存在');
-  console.log('  - Token:', token ? token.substring(0, 20) + '...' : '无');
-  
   if (!token) {
-    console.log('❌ 缺少访问令牌');
     return res.status(401).json({
       success: false,
       message: '缺少访问令牌'
@@ -22,14 +17,12 @@ function authenticateToken(req, res, next) {
   
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      console.log('❌ Token验证失败:', err.message);
       return res.status(403).json({
         success: false,
         message: '令牌无效或已过期'
       });
     }
     
-    console.log('✅ Token验证成功, 用户ID:', user.userId);
     req.user = user;
     next();
   });

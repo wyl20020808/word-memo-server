@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { callAI, parseAIJSON } = require('../services/aiService');
+const { createTask, TaskType, getTaskStatus } = require('../services/aiTaskManager');
 
 const router = express.Router();
 
@@ -676,150 +677,71 @@ router.post('/submit', authenticateToken, async (req, res) => {
   }
 });
 
-// AI生成题目
+// AI生成题目（异步轮询模式）
 router.post('/generate', authenticateToken, async (req, res) => {
   try {
     const { subject, chapter, count = 3 } = req.body;
-    
+    const userId = req.user.userId;
     const subjectName = SUBJECTS[subject]?.name || '计算机专业课';
-    
-    // 如果请求数量较多，分批生成
-    let allGeneratedQuestions = [];
-    
-    if (count <= 2) {
-      // 少量题目，直接生成
-      const messages = [
-        {
-          role: 'system',
-          content: `你是一个考研408专业课出题专家。请生成${count}道${subjectName}${chapter ? '（' + chapter + '）' : ''}的选择题。
 
-严格按照以下JSON格式返回，只返回JSON数组，不要有其他文字：
-[
-  {
-    "question": "题目内容",
-    "option_a": "选项A内容",
-    "option_b": "选项B内容", 
-    "option_c": "选项C内容",
-    "option_d": "选项D内容",
-    "answer": "正确答案(A/B/C/D)",
-    "explanation": "解析",
-    "difficulty": "easy/medium/hard",
-    "chapter": "所属章节"
-  }
-]
+    console.log(`🤖 AI生成题目请求，科目: ${subjectName}, 数量: ${count}`);
 
-要求：
-1. 题目要符合考研408难度
-2. 选项要有迷惑性
-3. 解析要详细清晰
-4. 难度分布合理`
-        },
-        {
-          role: 'user',
-          content: `请生成${count}道${subjectName}${chapter ? chapter : ''}的选择题`
-        }
-      ];
-
-      const content = await callAI(messages, { 
-        temperature: 0.8, 
-        maxTokens: 1000 
-      });
-      
-      allGeneratedQuestions = parseAIJSON(content) || [];
-    } else {
-      // 多题目，分批生成
-      console.log(`🤖 需要生成${count}道题目，将分批生成...`);
+    // 创建异步任务
+    const taskId = createTask(TaskType.MAJOR_GENERATE, userId, async () => {
+      let allGeneratedQuestions = [];
       const batchSize = 2;
       const batches = Math.ceil(count / batchSize);
       
       for (let i = 0; i < batches; i++) {
         const currentBatchSize = Math.min(batchSize, count - i * batchSize);
-        console.log(`🤖 生成第${i + 1}/${batches}批，${currentBatchSize}道题目...`);
         
         const messages = [
           {
             role: 'system',
-            content: `你是一个考研408专业课出题专家。请生成${currentBatchSize}道${subjectName}${chapter ? '（' + chapter + '）' : ''}的选择题。
-
-严格按照以下JSON格式返回，只返回JSON数组，不要有其他文字：
-[
-  {
-    "question": "题目内容",
-    "option_a": "选项A内容",
-    "option_b": "选项B内容", 
-    "option_c": "选项C内容",
-    "option_d": "选项D内容",
-    "answer": "正确答案(A/B/C/D)",
-    "explanation": "解析",
-    "difficulty": "easy/medium/hard",
-    "chapter": "所属章节"
-  }
-]
-
-要求：题目准确，选项有迷惑性，解析简洁。`
+            content: `你是考研408出题专家。生成${currentBatchSize}道${subjectName}${chapter ? '（' + chapter + '）' : ''}选择题。
+返回JSON数组：[{"question":"题目","option_a":"A","option_b":"B","option_c":"C","option_d":"D","answer":"A","explanation":"解析","difficulty":"medium","chapter":"章节"}]`
           },
-          {
-            role: 'user',
-            content: `请生成${currentBatchSize}道${subjectName}${chapter ? chapter : ''}的选择题`
-          }
+          { role: 'user', content: `生成${currentBatchSize}道${subjectName}选择题` }
         ];
 
         try {
-          const content = await callAI(messages, { 
-            temperature: 0.8, 
-            maxTokens: 800 
-          });
-          
+          const content = await callAI(messages, { temperature: 0.8, maxTokens: 800 });
           const batchQuestions = parseAIJSON(content);
           if (batchQuestions && Array.isArray(batchQuestions)) {
             allGeneratedQuestions.push(...batchQuestions);
-            console.log(`✅ 第${i + 1}批成功生成${batchQuestions.length}道题目`);
           }
-          
-          // 批次间延迟
-          if (i < batches - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        } catch (batchError) {
-          console.error(`❌ 第${i + 1}批生成失败:`, batchError.message);
+          if (i < batches - 1) await new Promise(r => setTimeout(r, 1000));
+        } catch (e) {
+          console.error(`第${i + 1}批生成失败:`, e.message);
         }
       }
-    }
-    
-    // 检查生成结果
-    if (!allGeneratedQuestions || allGeneratedQuestions.length === 0) {
-      console.error('AI生成题目失败，没有有效题目');
-      return res.status(500).json({ success: false, message: '生成失败' });
-    }
-    
-    console.log(`✅ 总共生成${allGeneratedQuestions.length}道题目`);
-    
-    // 保存到数据库
-    const savedIds = [];
-    for (const q of allGeneratedQuestions) {
-      const [result] = await pool.execute(`
-        INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AI生成', 1)
-      `, [subject, q.chapter || chapter, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.answer, q.explanation, q.difficulty || 'medium']);
-      savedIds.push(result.insertId);
-    }
-    
-    // 返回生成的题目（不含答案）
-    const safeQuestions = allGeneratedQuestions.map((q, i) => ({
-      id: savedIds[i],
-      subject,
-      chapter: q.chapter || chapter,
-      question: q.question,
-      options: {
-        A: q.option_a,
-        B: q.option_b,
-        C: q.option_c,
-        D: q.option_d
-      },
-      difficulty: q.difficulty || 'medium'
-    }));
-    
-    res.json({ success: true, data: safeQuestions });
+
+      if (allGeneratedQuestions.length === 0) {
+        throw new Error('AI生成失败');
+      }
+
+      // 保存到数据库
+      const savedIds = [];
+      for (const q of allGeneratedQuestions) {
+        const [result] = await pool.execute(
+          `INSERT INTO major_questions (subject, chapter, question, option_a, option_b, option_c, option_d, answer, explanation, difficulty, source, is_ai_generated)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AI生成', 1)`,
+          [subject, q.chapter || chapter, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.answer, q.explanation, q.difficulty || 'medium']
+        );
+        savedIds.push(result.insertId);
+      }
+
+      return allGeneratedQuestions.map((q, i) => ({
+        id: savedIds[i],
+        subject,
+        chapter: q.chapter || chapter,
+        question: q.question,
+        options: { A: q.option_a, B: q.option_b, C: q.option_c, D: q.option_d },
+        difficulty: q.difficulty || 'medium'
+      }));
+    });
+
+    res.json({ success: true, data: { taskId, status: 'processing' } });
   } catch (error) {
     console.error('AI生成题目失败:', error);
     res.status(500).json({ success: false, message: '生成失败' });
@@ -898,10 +820,11 @@ router.get('/wrong', authenticateToken, async (req, res) => {
   }
 });
 
-// AI解析题目
+// AI解析题目（异步轮询模式）
 router.post('/analysis', authenticateToken, async (req, res) => {
   try {
     const { questionId } = req.body;
+    const userId = req.user.userId;
     
     // 获取题目信息
     const [questions] = await pool.execute(
@@ -923,45 +846,33 @@ router.post('/analysis', authenticateToken, async (req, res) => {
       });
     }
     
-    // 调用AI生成解析
-    const subjectName = SUBJECTS[question.subject]?.name || '专业课';
-    
-    const messages = [
-      {
-        role: 'system',
-        content: `你是一个考研408专业课辅导老师。请简洁地解析题目，包括：
-1. 核心知识点
-2. 解题思路
-3. 易错提醒
+    // 创建异步任务
+    const taskId = createTask(TaskType.MAJOR_ANALYSIS, userId, async () => {
+      const subjectName = SUBJECTS[question.subject]?.name || '专业课';
+      
+      const messages = [
+        {
+          role: 'system',
+          content: `你是考研408辅导老师。简洁解析题目：1.核心知识点 2.解题思路 3.易错提醒。300字以内。`
+        },
+        {
+          role: 'user',
+          content: `解析${subjectName}题目：\n${question.question}\nA.${question.option_a}\nB.${question.option_b}\nC.${question.option_c}\nD.${question.option_d}\n答案：${question.answer}`
+        }
+      ];
 
-要求：简洁明了，300字以内。`
-      },
-      {
-        role: 'user',
-        content: `解析这道${subjectName}题目：
-
-${question.question}
-A. ${question.option_a}
-B. ${question.option_b}
-C. ${question.option_c}
-D. ${question.option_d}
-
-正确答案：${question.answer}`
-      }
-    ];
-
-    const analysis = await callAI(messages, { maxTokens: 500 });
-    
-    // 保存AI解析到数据库
-    await pool.execute(
-      'UPDATE major_questions SET ai_analysis = ? WHERE id = ?',
-      [analysis, questionId]
-    );
-    
-    res.json({ 
-      success: true, 
-      data: { analysis, cached: false }
+      const analysis = await callAI(messages, { maxTokens: 500 });
+      
+      // 保存AI解析到数据库
+      await pool.execute(
+        'UPDATE major_questions SET ai_analysis = ? WHERE id = ?',
+        [analysis, questionId]
+      );
+      
+      return { analysis, cached: false };
     });
+
+    res.json({ success: true, data: { taskId, status: 'processing' } });
   } catch (error) {
     console.error('AI解析失败:', error);
     res.status(500).json({ success: false, message: '解析失败' });

@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { generateAISummary, extractStudyData } = require('../services/summaryGenerator');
+const { createTask, TaskType } = require('../services/aiTaskManager');
 
 const router = express.Router();
 
@@ -260,92 +261,94 @@ router.get('/daily', authenticateToken, async (req, res) => {
   }
 });
 
-// 生成AI总结（支持从自然语言提取数据）
+// 生成AI总结（异步轮询模式）
 router.post('/daily/generate', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { userNotes, mood, tomorrowPlan } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
-    // 先尝试从用户输入中提取学习数据
-    let extractedData = null;
-    if (userNotes && userNotes.length >= 10) {
-      extractedData = await extractStudyData(userNotes);
-      
-      // 如果提取到数据，保存到数据库
-      if (extractedData) {
-        for (const subject of ['math', 'politics', 'major']) {
-          const data = extractedData[subject];
-          if (data && (data.time || data.exercises || data.notes)) {
-            await pool.execute(`
-              INSERT INTO study_progress (user_id, subject, date, study_time, exercises_done, chapters_done, notes_count)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-              ON DUPLICATE KEY UPDATE 
-                study_time = study_time + ?,
-                exercises_done = exercises_done + ?,
-                chapters_done = COALESCE(?, chapters_done),
-                notes_count = notes_count + ?
-            `, [
-              userId, subject, today, 
-              data.time || 0, data.exercises || 0, data.chapters || '', data.notes || 0,
-              data.time || 0, data.exercises || 0, data.chapters || null, data.notes || 0
-            ]);
+    // 创建异步任务
+    const taskId = createTask(TaskType.SUMMARY_GENERATE, userId, async () => {
+      // 先尝试从用户输入中提取学习数据
+      let extractedData = null;
+      if (userNotes && userNotes.length >= 10) {
+        extractedData = await extractStudyData(userNotes);
+        
+        // 如果提取到数据，保存到数据库
+        if (extractedData) {
+          for (const subject of ['math', 'politics', 'major']) {
+            const data = extractedData[subject];
+            if (data && (data.time || data.exercises || data.notes)) {
+              await pool.execute(`
+                INSERT INTO study_progress (user_id, subject, date, study_time, exercises_done, chapters_done, notes_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE 
+                  study_time = study_time + ?,
+                  exercises_done = exercises_done + ?,
+                  chapters_done = COALESCE(?, chapters_done),
+                  notes_count = notes_count + ?
+              `, [
+                userId, subject, today, 
+                data.time || 0, data.exercises || 0, data.chapters || '', data.notes || 0,
+                data.time || 0, data.exercises || 0, data.chapters || null, data.notes || 0
+              ]);
+            }
           }
         }
       }
-    }
 
-    // 收集今日所有学习数据
-    const [progress] = await pool.execute(`
-      SELECT * FROM study_progress WHERE user_id = ? AND date = ?
-    `, [userId, today]);
+      // 收集今日所有学习数据
+      const [progress] = await pool.execute(`
+        SELECT * FROM study_progress WHERE user_id = ? AND date = ?
+      `, [userId, today]);
 
-    const [englishStats] = await pool.execute(`
-      SELECT * FROM user_english_stats WHERE user_id = ? AND date = ?
-    `, [userId, today]);
+      const [englishStats] = await pool.execute(`
+        SELECT * FROM user_english_stats WHERE user_id = ? AND date = ?
+      `, [userId, today]);
 
-    const [wordStats] = await pool.execute(`
-      SELECT COUNT(*) as count FROM user_word_records 
-      WHERE user_id = ? AND DATE(learned_at) = ?
-    `, [userId, today]);
+      const [wordStats] = await pool.execute(`
+        SELECT COUNT(*) as count FROM user_word_records 
+        WHERE user_id = ? AND DATE(learned_at) = ?
+      `, [userId, today]);
 
-    const studyData = {
-      progress,
-      english: englishStats[0] || {},
-      words: wordStats[0]?.count || 0,
-      userNotes,
-      mood,
-      extractedData
-    };
+      const studyData = {
+        progress,
+        english: englishStats[0] || {},
+        words: wordStats[0]?.count || 0,
+        userNotes,
+        mood,
+        extractedData
+      };
 
-    // 调用AI生成总结
-    const aiResult = await generateAISummary(studyData);
+      // 调用AI生成总结
+      const aiResult = await generateAISummary(studyData);
 
-    // 计算总学习时长
-    let totalTime = 0;
-    progress.forEach(p => { totalTime += p.study_time || 0; });
+      // 计算总学习时长
+      let totalTime = 0;
+      progress.forEach(p => { totalTime += p.study_time || 0; });
 
-    // 保存总结
-    await pool.execute(`
-      INSERT INTO daily_summaries (user_id, date, auto_summary, user_notes, ai_suggestions, mood, tomorrow_plan, total_study_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE 
-        auto_summary = ?, user_notes = ?, ai_suggestions = ?, mood = ?, tomorrow_plan = ?, total_study_time = ?
-    `, [
-      userId, today, aiResult.summary, userNotes, aiResult.suggestions, mood, tomorrowPlan, totalTime,
-      aiResult.summary, userNotes, aiResult.suggestions, mood, tomorrowPlan, totalTime
-    ]);
+      // 保存总结
+      await pool.execute(`
+        INSERT INTO daily_summaries (user_id, date, auto_summary, user_notes, ai_suggestions, mood, tomorrow_plan, total_study_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+          auto_summary = ?, user_notes = ?, ai_suggestions = ?, mood = ?, tomorrow_plan = ?, total_study_time = ?
+      `, [
+        userId, today, aiResult.summary, userNotes, aiResult.suggestions, mood, tomorrowPlan, totalTime,
+        aiResult.summary, userNotes, aiResult.suggestions, mood, tomorrowPlan, totalTime
+      ]);
 
-    res.json({
-      success: true,
-      data: {
+      return {
         autoSummary: aiResult.summary,
         suggestions: aiResult.suggestions,
         encouragement: aiResult.encouragement,
         totalStudyTime: totalTime,
-        extractedData: aiResult.extractedData // 返回提取的数据让前端展示
-      }
+        extractedData: aiResult.extractedData
+      };
     });
+
+    res.json({ success: true, data: { taskId, status: 'processing' } });
   } catch (error) {
     console.error('生成总结失败:', error);
     res.status(500).json({ success: false, message: '生成失败' });
