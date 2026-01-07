@@ -251,7 +251,8 @@ router.post('/analyze', async (req, res) => {
 async function performActivityAnalysis(notes) {
   const contentList = notes.map((note, i) => {
     const date = new Date(note.created_at).toLocaleDateString('zh-CN');
-    return `[${date}] ${note.category ? `(${note.category}) ` : ''}${note.original_content}`;
+    const category = note.category ? `(${note.category}) ` : '';
+    return `[${date}] ${category}${note.original_content}`;
   }).join('\n\n');
 
   const systemPrompt = `你是一个智能生活分析助手。用户会提供近期的记录，你需要分析用户最近在做什么。
