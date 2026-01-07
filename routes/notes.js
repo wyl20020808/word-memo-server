@@ -118,15 +118,34 @@ router.get('/analysis', async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const [results] = await pool.execute(
-      `SELECT id, summary, key_points, suggestions, analyzed_at, 
-              activity_summary, activity_categories, recent_highlights
-       FROM ai_notes_analysis 
-       WHERE user_id = ? 
-       ORDER BY analyzed_at DESC 
-       LIMIT 1`,
-      [userId]
-    );
+    // 先尝试查询包含新字段的数据
+    let results;
+    try {
+      [results] = await pool.execute(
+        `SELECT id, summary, key_points, suggestions, analyzed_at, 
+                activity_summary, activity_categories, recent_highlights
+         FROM ai_notes_analysis 
+         WHERE user_id = ? 
+         ORDER BY analyzed_at DESC 
+         LIMIT 1`,
+        [userId]
+      );
+    } catch (queryError) {
+      // 如果新字段不存在，回退到只查询基础字段
+      if (queryError.message.includes('Unknown column')) {
+        console.log('⚠️ 新字段不存在，使用基础查询');
+        [results] = await pool.execute(
+          `SELECT id, summary, key_points, suggestions, analyzed_at
+           FROM ai_notes_analysis 
+           WHERE user_id = ? 
+           ORDER BY analyzed_at DESC 
+           LIMIT 1`,
+          [userId]
+        );
+      } else {
+        throw queryError;
+      }
+    }
 
     if (results.length === 0) {
       // 没有分析结果，直接返回null，不触发分析
@@ -149,7 +168,7 @@ router.get('/analysis', async (req, res) => {
         keyPoints: JSON.parse(analysis.key_points || '[]'),
         suggestions: JSON.parse(analysis.suggestions || '[]'),
         analyzedAt: analysis.analyzed_at,
-        activitySummary: analysis.activity_summary,
+        activitySummary: analysis.activity_summary || '',
         activityCategories: JSON.parse(analysis.activity_categories || '[]'),
         recentHighlights: JSON.parse(analysis.recent_highlights || '[]'),
         needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
