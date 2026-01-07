@@ -255,28 +255,30 @@ async function createTables() {
 async function migrateTableStructure() {
   console.log('🔧 检查表结构迁移...');
   
-  const migrations = [
-    // 为 ai_notes_analysis 添加活动分析字段
-    {
-      name: 'add_activity_fields',
-      sql: `ALTER TABLE ai_notes_analysis 
-            ADD COLUMN IF NOT EXISTS activity_summary TEXT COMMENT 'AI活动总结',
-            ADD COLUMN IF NOT EXISTS activity_categories JSON COMMENT '活动分类',
-            ADD COLUMN IF NOT EXISTS recent_highlights JSON COMMENT '近期亮点'`
-    }
+  // 需要添加到 ai_notes_analysis 表的列
+  const columnsToAdd = [
+    { name: 'activity_summary', definition: "TEXT COMMENT 'AI活动总结'" },
+    { name: 'activity_categories', definition: "JSON COMMENT '活动分类'" },
+    { name: 'recent_highlights', definition: "JSON COMMENT '近期亮点'" }
   ];
   
-  for (const migration of migrations) {
+  for (const col of columnsToAdd) {
     try {
-      await pool.execute(migration.sql);
-      console.log(`✅ 迁移完成: ${migration.name}`);
-    } catch (e) {
-      // 忽略字段已存在的错误
-      if (e.message.includes('Duplicate column') || e.message.includes('already exists')) {
-        console.log(`⏭️  跳过迁移: ${migration.name} (字段已存在)`);
+      // 检查列是否存在
+      const [columns] = await pool.execute(
+        `SHOW COLUMNS FROM ai_notes_analysis LIKE ?`,
+        [col.name]
+      );
+      
+      if (columns.length === 0) {
+        // 列不存在，添加它
+        await pool.execute(`ALTER TABLE ai_notes_analysis ADD COLUMN ${col.name} ${col.definition}`);
+        console.log(`✅ 添加列: ai_notes_analysis.${col.name}`);
       } else {
-        console.log(`⚠️  迁移警告: ${migration.name} - ${e.message}`);
+        console.log(`⏭️  列已存在: ai_notes_analysis.${col.name}`);
       }
+    } catch (e) {
+      console.log(`⚠️  迁移警告: ${col.name} - ${e.message}`);
     }
   }
 }
