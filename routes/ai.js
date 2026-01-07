@@ -27,6 +27,57 @@ router.post('/chat', authenticateToken, async (req, res) => {
   }
 });
 
+// 通用AI对话接口（支持多轮对话）
+router.post('/conversation', authenticateToken, async (req, res) => {
+  try {
+    const { messages } = req.body;
+    const userId = req.user.userId;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, message: '缺少对话消息' });
+    }
+
+    console.log('🤖 通用AI对话，用户:', userId, '消息数:', messages.length);
+
+    // 构建系统提示词
+    const systemPrompt = `你是一个智能助手，可以帮助用户：
+1. 分析和复盘日常事务
+2. 解答各种问题
+3. 提供建议和思路
+4. 整理和总结信息
+
+回答要求：
+- 简洁明了，重点突出
+- 提供实用的建议
+- 保持友好和鼓励的态度
+- 如果用户问的是学习相关问题，给出具体可行的方法`;
+
+    // 构建完整消息列表
+    const fullMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.content
+      }))
+    ];
+
+    // 调用AI服务
+    const aiResponse = await callAI(fullMessages, {
+      temperature: 0.8,
+      maxTokens: 1500
+    });
+
+    res.json({ 
+      success: true, 
+      data: { reply: aiResponse }
+    });
+
+  } catch (error) {
+    console.error('❌ AI对话失败:', error);
+    res.status(500).json({ success: false, message: 'AI服务暂时不可用: ' + error.message });
+  }
+});
+
 // AI自动补全单词内容（例句、翻译）
 router.post('/complete-word', authenticateToken, async (req, res) => {
   try {
