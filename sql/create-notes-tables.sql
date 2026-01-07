@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS ai_notes_analysis (
   summary TEXT,
   key_points JSON,
   suggestions JSON,
+  activity_summary TEXT COMMENT 'AI活动总结',
+  activity_categories JSON COMMENT '活动分类',
+  recent_highlights JSON COMMENT '近期亮点',
   notes_count INT DEFAULT 0,
   analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_user_analyzed (user_id, analyzed_at)
