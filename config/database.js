@@ -280,7 +280,7 @@ async function migrateTableStructure() {
   
   // 先检查表是否存在
   try {
-    const [tables] = await pool.execute(
+    const [tables] = await pool.query(
       `SHOW TABLES LIKE 'ai_notes_analysis'`
     );
     if (tables.length === 0) {
@@ -302,10 +302,9 @@ async function migrateTableStructure() {
   
   for (const col of columnsToAdd) {
     try {
-      // 检查列是否存在
-      const [columns] = await pool.execute(
-        `SHOW COLUMNS FROM ai_notes_analysis LIKE ?`,
-        [col.name]
+      // 检查列是否存在 - 使用 query 而不是 execute，因为 SHOW COLUMNS 不支持参数化
+      const [columns] = await pool.query(
+        `SHOW COLUMNS FROM ai_notes_analysis LIKE '${col.name}'`
       );
       
       console.log(`🔍 检查列 ${col.name}: 找到 ${columns.length} 个匹配`);
@@ -313,14 +312,13 @@ async function migrateTableStructure() {
       if (columns.length === 0) {
         // 列不存在，添加它
         console.log(`📝 正在添加列: ${col.name}...`);
-        await pool.execute(`ALTER TABLE ai_notes_analysis ADD COLUMN ${col.name} ${col.definition}`);
+        await pool.query(`ALTER TABLE ai_notes_analysis ADD COLUMN ${col.name} ${col.definition}`);
         console.log(`✅ 成功添加列: ai_notes_analysis.${col.name}`);
       } else {
         console.log(`⏭️  列已存在: ai_notes_analysis.${col.name}`);
       }
     } catch (e) {
       console.error(`❌ 迁移失败: ${col.name} - ${e.message}`);
-      console.error('完整错误:', e);
     }
   }
   
@@ -420,6 +418,13 @@ const db = {
       throw new Error('数据库未初始化');
     }
     return await pool.execute(sql, params);
+  },
+  
+  async query(sql, params) {
+    if (!pool) {
+      throw new Error('数据库未初始化');
+    }
+    return await pool.query(sql, params);
   },
   
   // 带重试的执行（用于异步任务中的数据库操作）
