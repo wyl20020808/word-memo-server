@@ -113,7 +113,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// 获取AI分析结果（最近一次）
+// 获取AI分析结果（最近一次）- 只读取，不触发分析
 router.get('/analysis', async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -129,24 +129,18 @@ router.get('/analysis', async (req, res) => {
     );
 
     if (results.length === 0) {
+      // 没有分析结果，直接返回null，不触发分析
       return res.json({ success: true, data: null });
     }
 
     const analysis = results[0];
     
-    // 检查是否需要更新（超过3小时）
+    // 计算分析结果的新鲜度
     const lastAnalyzed = new Date(analysis.analyzed_at);
     const now = new Date();
     const hoursSinceAnalysis = (now - lastAnalyzed) / (1000 * 60 * 60);
     
-    // 如果超过3小时，异步触发更新（不阻塞当前请求）
-    if (hoursSinceAnalysis >= 3) {
-      console.log('⏰ 分析结果已过期，触发后台更新');
-      triggerBackgroundAnalysis(userId).catch(err => {
-        console.error('后台分析失败:', err);
-      });
-    }
-
+    // 返回数据，包含是否需要更新的标记（让前端决定是否提示用户手动更新）
     res.json({
       success: true,
       data: {
@@ -157,7 +151,8 @@ router.get('/analysis', async (req, res) => {
         analyzedAt: analysis.analyzed_at,
         activitySummary: analysis.activity_summary,
         activityCategories: JSON.parse(analysis.activity_categories || '[]'),
-        recentHighlights: JSON.parse(analysis.recent_highlights || '[]')
+        recentHighlights: JSON.parse(analysis.recent_highlights || '[]'),
+        needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
       }
     });
 
@@ -240,31 +235,6 @@ async function saveAnalysisResult(userId, analysisResult, notesCount) {
       notesCount
     ]
   );
-}
-
-// 后台异步分析（不阻塞请求）
-async function triggerBackgroundAnalysis(userId) {
-  try {
-    const [notes] = await pool.execute(
-      `SELECT original_content, category, created_at 
-       FROM ai_notes 
-       WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [userId]
-    );
-
-    if (notes.length === 0) return;
-
-    console.log('🔄 后台分析开始，用户:', userId);
-
-    const analysisResult = await performActivityAnalysis(notes);
-    await saveAnalysisResult(userId, analysisResult, notes.length);
-
-    console.log('✅ 后台分析完成');
-  } catch (error) {
-    console.error('❌ 后台分析失败:', error);
-  }
 }
 
 // 手动触发AI分析（异步轮询模式）
