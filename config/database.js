@@ -278,6 +278,21 @@ async function createTables() {
 async function migrateTableStructure() {
   console.log('🔧 检查表结构迁移...');
   
+  // 先检查表是否存在
+  try {
+    const [tables] = await pool.execute(
+      `SHOW TABLES LIKE 'ai_notes_analysis'`
+    );
+    if (tables.length === 0) {
+      console.log('⚠️ ai_notes_analysis 表不存在，跳过迁移');
+      return;
+    }
+    console.log('✅ ai_notes_analysis 表存在，开始检查列...');
+  } catch (e) {
+    console.log('⚠️ 检查表存在性失败:', e.message);
+    return;
+  }
+  
   // 需要添加到 ai_notes_analysis 表的列
   const columnsToAdd = [
     { name: 'activity_summary', definition: "TEXT COMMENT 'AI活动总结'" },
@@ -293,17 +308,23 @@ async function migrateTableStructure() {
         [col.name]
       );
       
+      console.log(`🔍 检查列 ${col.name}: 找到 ${columns.length} 个匹配`);
+      
       if (columns.length === 0) {
         // 列不存在，添加它
+        console.log(`📝 正在添加列: ${col.name}...`);
         await pool.execute(`ALTER TABLE ai_notes_analysis ADD COLUMN ${col.name} ${col.definition}`);
-        console.log(`✅ 添加列: ai_notes_analysis.${col.name}`);
+        console.log(`✅ 成功添加列: ai_notes_analysis.${col.name}`);
       } else {
         console.log(`⏭️  列已存在: ai_notes_analysis.${col.name}`);
       }
     } catch (e) {
-      console.log(`⚠️  迁移警告: ${col.name} - ${e.message}`);
+      console.error(`❌ 迁移失败: ${col.name} - ${e.message}`);
+      console.error('完整错误:', e);
     }
   }
+  
+  console.log('✅ 表结构迁移检查完成');
 }
 
 // 导入单词数据到MySQL（全部导入）
