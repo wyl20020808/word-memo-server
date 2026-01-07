@@ -227,6 +227,9 @@ async function createTables() {
       summary TEXT,
       key_points JSON,
       suggestions JSON,
+      activity_summary TEXT COMMENT 'AI活动总结',
+      activity_categories JSON COMMENT '活动分类',
+      recent_highlights JSON COMMENT '近期亮点',
       notes_count INT DEFAULT 0,
       analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_user_analyzed (user_id, analyzed_at)
@@ -243,6 +246,39 @@ async function createTables() {
     }
   }
   console.log('✅ 表结构创建完成');
+  
+  // 执行表结构迁移（添加新字段）
+  await migrateTableStructure();
+}
+
+// 表结构迁移（添加新字段）
+async function migrateTableStructure() {
+  console.log('🔧 检查表结构迁移...');
+  
+  const migrations = [
+    // 为 ai_notes_analysis 添加活动分析字段
+    {
+      name: 'add_activity_fields',
+      sql: `ALTER TABLE ai_notes_analysis 
+            ADD COLUMN IF NOT EXISTS activity_summary TEXT COMMENT 'AI活动总结',
+            ADD COLUMN IF NOT EXISTS activity_categories JSON COMMENT '活动分类',
+            ADD COLUMN IF NOT EXISTS recent_highlights JSON COMMENT '近期亮点'`
+    }
+  ];
+  
+  for (const migration of migrations) {
+    try {
+      await pool.execute(migration.sql);
+      console.log(`✅ 迁移完成: ${migration.name}`);
+    } catch (e) {
+      // 忽略字段已存在的错误
+      if (e.message.includes('Duplicate column') || e.message.includes('already exists')) {
+        console.log(`⏭️  跳过迁移: ${migration.name} (字段已存在)`);
+      } else {
+        console.log(`⚠️  迁移警告: ${migration.name} - ${e.message}`);
+      }
+    }
+  }
 }
 
 // 导入单词数据到MySQL（全部导入）
