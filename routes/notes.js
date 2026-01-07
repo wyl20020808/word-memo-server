@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/database');
 const { callAI, parseAIJSON } = require('../services/aiService');
 const { authenticateToken } = require('../middleware/auth');
+const { createTask, TaskType } = require('../services/aiTaskManager');
 
 const router = express.Router();
 
@@ -154,7 +155,6 @@ router.get('/analysis', async (req, res) => {
         keyPoints: JSON.parse(analysis.key_points || '[]'),
         suggestions: JSON.parse(analysis.suggestions || '[]'),
         analyzedAt: analysis.analyzed_at,
-        // 新增结构化数据
         activitySummary: analysis.activity_summary,
         activityCategories: JSON.parse(analysis.activity_categories || '[]'),
         recentHighlights: JSON.parse(analysis.recent_highlights || '[]')
@@ -223,10 +223,28 @@ async function performActivityAnalysis(notes) {
   };
 }
 
+// 保存分析结果到数据库
+async function saveAnalysisResult(userId, analysisResult, notesCount) {
+  await pool.execute(
+    `INSERT INTO ai_notes_analysis 
+     (user_id, summary, key_points, suggestions, activity_summary, activity_categories, recent_highlights, notes_count) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      analysisResult.summary,
+      JSON.stringify(analysisResult.keyPoints),
+      JSON.stringify(analysisResult.suggestions),
+      analysisResult.activitySummary,
+      JSON.stringify(analysisResult.activityCategories),
+      JSON.stringify(analysisResult.recentHighlights),
+      notesCount
+    ]
+  );
+}
+
 // 后台异步分析（不阻塞请求）
 async function triggerBackgroundAnalysis(userId) {
   try {
-    // 获取最近记录
     const [notes] = await pool.execute(
       `SELECT original_content, category, created_at 
        FROM ai_notes 
@@ -240,24 +258,8 @@ async function triggerBackgroundAnalysis(userId) {
 
     console.log('🔄 后台分析开始，用户:', userId);
 
-    // 调用AI分析
     const analysisResult = await performActivityAnalysis(notes);
-    
-    // 保存分析结果
-    await pool.execute(
-      `INSERT INTO ai_notes_analysis 
-       (user_id, summary, key_points, suggestions, activity_summary, activity_categories, recent_highlights) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        analysisResult.summary,
-        JSON.stringify(analysisResult.keyPoints),
-        JSON.stringify(analysisResult.suggestions),
-        analysisResult.activitySummary,
-        JSON.stringify(analysisResult.activityCategories),
-        JSON.stringify(analysisResult.recentHighlights)
-      ]
-    );
+    await saveAnalysisResult(userId, analysisResult, notes.length);
 
     console.log('✅ 后台分析完成');
   } catch (error) {
@@ -265,7 +267,7 @@ async function triggerBackgroundAnalysis(userId) {
   }
 }
 
-// 手动触发AI分析（分析近期所有记录）
+// 手动触发AI分析（异步轮询模式）
 router.post('/analyze', async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -283,31 +285,14 @@ router.post('/analyze', async (req, res) => {
       return res.status(400).json({ success: false, message: '没有可分析的记录' });
     }
 
-    console.log('📝 手动触发AI分析，用户:', userId, '记录数:', notes.length);
+    console.log('📝 手动触发AI分析（异步模式），用户:', userId, '记录数:', notes.length);
 
-    // 调用AI分析
-    const analysisResult = await performActivityAnalysis(notes);
-    
-    // 保存分析结果
-    await pool.execute(
-      `INSERT INTO ai_notes_analysis 
-       (user_id, summary, key_points, suggestions, activity_summary, activity_categories, recent_highlights, notes_count) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        analysisResult.summary,
-        JSON.stringify(analysisResult.keyPoints),
-        JSON.stringify(analysisResult.suggestions),
-        analysisResult.activitySummary,
-        JSON.stringify(analysisResult.activityCategories),
-        JSON.stringify(analysisResult.recentHighlights),
-        notes.length
-      ]
-    );
-
-    res.json({
-      success: true,
-      data: {
+    // 创建异步任务
+    const taskId = createTask(TaskType.NOTES_ANALYSIS, userId, async () => {
+      const analysisResult = await performActivityAnalysis(notes);
+      await saveAnalysisResult(userId, analysisResult, notes.length);
+      
+      return {
         summary: analysisResult.summary,
         keyPoints: analysisResult.keyPoints,
         suggestions: analysisResult.suggestions,
@@ -316,7 +301,13 @@ router.post('/analyze', async (req, res) => {
         recentHighlights: analysisResult.recentHighlights,
         notesCount: notes.length,
         analyzedAt: new Date()
-      }
+      };
+    });
+
+    // 立即返回任务ID
+    res.json({
+      success: true,
+      data: { taskId, status: 'processing' }
     });
 
   } catch (error) {
