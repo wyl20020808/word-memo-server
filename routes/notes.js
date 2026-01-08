@@ -193,46 +193,113 @@ router.get('/analysis', async (req, res) => {
   }
 });
 
-// AI活动分析函数
+// AI活动分析函数 - 详细分类版
 async function performActivityAnalysis(notes) {
   const contentList = notes.map(note => {
     const date = new Date(note.created_at).toLocaleDateString('zh-CN');
-    const category = note.category ? '(' + note.category + ') ' : '';
-    return '[' + date + '] ' + category + note.original_content;
-  }).join('\n\n');
+    const time = new Date(note.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const category = note.category ? `[${note.category}]` : '';
+    return `${date} ${time} ${category} ${note.original_content}`;
+  }).join('\n');
 
-  const systemPrompt = '你是一个智能生活分析助手。用户会提供近期的记录，你需要分析用户最近在做什么。\n\n' +
-    '请按以下JSON格式返回（严格遵守格式）：\n' +
-    '{\n' +
-    '  "summary": "一句话总结用户最近的主要活动和状态（30字以内）",\n' +
-    '  "keyPoints": ["发现1", "发现2", "发现3"],\n' +
-    '  "suggestions": ["建议1", "建议2", "建议3"],\n' +
-    '  "activitySummary": "用一句话总结用户最近在做什么（30字以内）",\n' +
-    '  "activityCategories": [\n' +
-    '    {\n' +
-    '      "name": "类别名称",\n' +
-    '      "icon": "图标emoji",\n' +
-    '      "desc": "活动描述（20字以内）",\n' +
-    '      "count": 记录数量\n' +
-    '    }\n' +
-    '  ],\n' +
-    '  "recentHighlights": [\n' +
-    '    {\n' +
-    '      "title": "亮点标题（10字以内）",\n' +
-    '      "desc": "详细描述（30字以内）"\n' +
-    '    }\n' +
-    '  ]\n' +
-    '}\n\n' +
-    '要求：\n' +
-    '- activityCategories 3-5个类别\n' +
-    '- recentHighlights 3个亮点\n' +
-    '- 所有文字简洁有力\n' +
-    '- 只返回JSON，不要其他内容';
+  const systemPrompt = `你是一个专业的生活分析师。请仔细分析用户的记录，将活动分类整理，并给出深度洞察。
+
+请严格按以下JSON格式返回（不要添加任何其他内容）：
+{
+  "overallSummary": "整体总结（50字以内，概括用户这段时间的生活状态和重心）",
+  "totalRecords": ${notes.length},
+  "dateRange": "分析的时间范围描述",
+  "categories": [
+    {
+      "id": "study",
+      "name": "📚 学习成长",
+      "color": "#667eea",
+      "percentage": 30,
+      "count": 3,
+      "summary": "这个板块的总结（30字以内）",
+      "activities": [
+        {
+          "title": "具体活动名称",
+          "detail": "活动详情描述",
+          "time": "时间信息"
+        }
+      ],
+      "insight": "针对这个板块的洞察或建议（30字以内）"
+    },
+    {
+      "id": "work",
+      "name": "💼 工作事务",
+      "color": "#f093fb",
+      "percentage": 25,
+      "count": 2,
+      "summary": "工作相关总结",
+      "activities": [],
+      "insight": "工作方面的洞察"
+    },
+    {
+      "id": "entertainment",
+      "name": "🎮 休闲娱乐",
+      "color": "#4facfe",
+      "percentage": 20,
+      "count": 2,
+      "summary": "娱乐活动总结",
+      "activities": [],
+      "insight": "娱乐方面的建议"
+    },
+    {
+      "id": "thinking",
+      "name": "💭 思考感悟",
+      "color": "#43e97b",
+      "percentage": 15,
+      "count": 1,
+      "summary": "思考内容总结",
+      "activities": [],
+      "insight": "思考方面的点评"
+    },
+    {
+      "id": "daily",
+      "name": "🏠 日常生活",
+      "color": "#fa709a",
+      "percentage": 10,
+      "count": 1,
+      "summary": "日常活动总结",
+      "activities": [],
+      "insight": "生活方面的建议"
+    }
+  ],
+  "highlights": [
+    {
+      "icon": "🌟",
+      "title": "亮点标题",
+      "content": "亮点内容描述（40字以内）"
+    }
+  ],
+  "weeklyTrend": {
+    "mostActiveDay": "最活跃的日期",
+    "mostActiveCategory": "最活跃的类别",
+    "suggestion": "基于趋势的建议（40字以内）"
+  }
+}
+
+分类规则：
+- 📚 学习成长：背单词、看书、学习课程、考研复习、技能提升等
+- 💼 工作事务：工作任务、项目进展、会议、职业相关等
+- 🎮 休闲娱乐：游戏、看剧、听音乐、社交活动、运动健身等
+- 💭 思考感悟：反思、计划、灵感、情绪记录、人生思考等
+- 🏠 日常生活：吃饭、购物、家务、出行、健康等
+
+要求：
+1. percentage 所有类别加起来必须等于100
+2. 如果某类别没有相关记录，percentage设为0，activities为空数组
+3. 每个类别最多列出3个具体活动
+4. highlights 提取2-3个最值得关注的亮点
+5. 所有文字要简洁有力，避免啰嗦
+6. 只返回JSON，不要有任何其他文字`;
 
   const aiResponse = await callAI([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: '请分析以下' + notes.length + '条记录：\n\n' + contentList }
-  ], { temperature: 0.7, maxTokens: 1500 });
+    { role: 'user', content: `请分析以下${notes.length}条记录：\n\n${contentList}` }
+  ], { temperature: 0.7, maxTokens: 2500 });
 
   const result = parseAIJSON(aiResponse);
   if (!result) {
@@ -240,15 +307,16 @@ async function performActivityAnalysis(notes) {
   }
 
   return {
-    summary: result.summary || '',
-    keyPoints: result.keyPoints || [],
-    suggestions: result.suggestions || [],
-    activitySummary: result.activitySummary || result.summary || '',
-    activityCategories: result.activityCategories || [],
-    recentHighlights: result.recentHighlights || []
+    summary: result.overallSummary || '',
+    keyPoints: result.highlights ? result.highlights.map(h => h.content) : [],
+    suggestions: result.weeklyTrend ? [result.weeklyTrend.suggestion] : [],
+    activitySummary: result.overallSummary || '',
+    activityCategories: result.categories || [],
+    recentHighlights: result.highlights || [],
+    weeklyTrend: result.weeklyTrend || null,
+    totalRecords: result.totalRecords || notes.length,
+    dateRange: result.dateRange || ''
   };
-}
-
 // 保存分析结果到数据库（带重试）
 async function saveAnalysisResult(userId, analysisResult, notesCount) {
   await pool.executeWithRetry(
