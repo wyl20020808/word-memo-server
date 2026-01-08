@@ -157,23 +157,36 @@ router.get('/analysis', async (req, res) => {
     console.log('📊 数据库原始数据:', {
       activity_summary: analysis.activity_summary,
       activity_categories_type: typeof analysis.activity_categories,
-      activity_categories_length: analysis.activity_categories?.length,
-      activity_categories_preview: analysis.activity_categories?.substring(0, 200),
+      activity_categories_isArray: Array.isArray(analysis.activity_categories),
+      activity_categories_preview: typeof analysis.activity_categories === 'string' 
+        ? analysis.activity_categories.substring(0, 200)
+        : JSON.stringify(analysis.activity_categories).substring(0, 200),
       recent_highlights_type: typeof analysis.recent_highlights,
-      recent_highlights_preview: analysis.recent_highlights?.substring(0, 200)
+      recent_highlights_preview: typeof analysis.recent_highlights === 'string'
+        ? analysis.recent_highlights.substring(0, 200)
+        : JSON.stringify(analysis.recent_highlights).substring(0, 200)
     });
     
     // 安全解析 JSON 字段
     const safeParseJSON = (str, defaultVal = []) => {
-      if (!str) return defaultVal;
-      try {
-        const parsed = JSON.parse(str);
-        return Array.isArray(parsed) ? parsed : defaultVal;
-      } catch (e) {
-        console.error('JSON解析失败:', e.message, '原始数据:', str?.substring(0, 100));
-        // 如果不是有效JSON，可能是纯文本，转为数组
-        return typeof str === 'string' ? [str] : defaultVal;
+      // 如果已经是对象/数组，直接返回
+      if (typeof str === 'object' && str !== null) {
+        return Array.isArray(str) ? str : defaultVal;
       }
+      // 如果是空值，返回默认值
+      if (!str) return defaultVal;
+      // 如果是字符串，尝试解析
+      if (typeof str === 'string') {
+        try {
+          const parsed = JSON.parse(str);
+          return Array.isArray(parsed) ? parsed : defaultVal;
+        } catch (e) {
+          console.error('JSON解析失败:', e.message, '原始数据:', str?.substring(0, 100));
+          // 如果不是有效JSON，可能是纯文本，转为数组
+          return [str];
+        }
+      }
+      return defaultVal;
     };
     
     // 计算分析结果的新鲜度
