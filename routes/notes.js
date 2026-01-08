@@ -200,7 +200,7 @@ router.get('/analysis', async (req, res) => {
   }
 });
 
-// AI活动分析函数 - 详细分类版
+// AI活动分析函数 - 详细分类版（带fallback）
 async function performActivityAnalysis(notes) {
   const contentList = notes.map(note => {
     const date = new Date(note.created_at).toLocaleDateString('zh-CN');
@@ -263,7 +263,7 @@ async function performActivityAnalysis(notes) {
     }
   ],
   "highlights": [
-    {"icon": "", "title": "亮点", "content": "内容"}
+    {"icon": "✨", "title": "亮点", "content": "内容"}
   ],
   "weeklyTrend": {
     "mostActiveDay": "日期",
@@ -285,27 +285,80 @@ async function performActivityAnalysis(notes) {
 4. **确保JSON完整，所有括号闭合**
 5. **只返回JSON，不要其他内容**`;
 
-  const aiResponse = await callAI([
+  const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `请分析以下${notes.length}条记录：\n\n${contentList}` }
-  ], { temperature: 0.7, maxTokens: 3500 }); // 增加 token 限制
+  ];
 
-  // 清理 AI 返回的内容
-  let cleanedResponse = aiResponse.trim();
-  
-  // 移除可能的 markdown 代码块标记
-  cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
-  cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
-  
-  // 尝试解析
-  let result = parseAIJSON(cleanedResponse);
-  
-  // 如果解析失败或数据不完整，返回默认结构
-  if (!result || !result.categories) {
-    console.error('AI返回格式错误，使用默认结构');
-    console.log('AI返回内容前500字符:', cleanedResponse.substring(0, 500));
+  let result = null;
+  let aiResponse = null;
+
+  // 第一次尝试：使用豆包
+  try {
+    console.log('🎯 第一次尝试：使用豆包 API');
+    aiResponse = await callAI(messages, { 
+      temperature: 0.7, 
+      maxTokens: 3500,
+      preferredProvider: 'Doubao'
+    });
+
+    // 清理 AI 返回的内容
+    let cleanedResponse = aiResponse.trim();
+    cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+    cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
     
-    // 返回默认结构
+    // 尝试解析
+    result = parseAIJSON(cleanedResponse);
+    
+    // 验证数据完整性
+    if (result && result.categories && Array.isArray(result.categories) && result.categories.length > 0) {
+      console.log('✅ 豆包返回数据完整，解析成功');
+    } else {
+      console.warn('⚠️ 豆包返回数据不完整，准备使用备用AI');
+      console.log('豆包返回内容前500字符:', cleanedResponse.substring(0, 500));
+      result = null; // 标记为失败，触发fallback
+    }
+  } catch (error) {
+    console.error('❌ 豆包调用失败:', error.message);
+    result = null;
+  }
+
+  // 第二次尝试：如果豆包失败，使用DeepSeek
+  if (!result) {
+    try {
+      console.log('🔄 第二次尝试：使用 DeepSeek API');
+      aiResponse = await callAI(messages, { 
+        temperature: 0.7, 
+        maxTokens: 3500,
+        preferredProvider: 'DeepSeek'
+      });
+
+      // 清理 AI 返回的内容
+      let cleanedResponse = aiResponse.trim();
+      cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+      
+      // 尝试解析
+      result = parseAIJSON(cleanedResponse);
+      
+      // 验证数据完整性
+      if (result && result.categories && Array.isArray(result.categories) && result.categories.length > 0) {
+        console.log('✅ DeepSeek返回数据完整，解析成功');
+      } else {
+        console.warn('⚠️ DeepSeek返回数据也不完整');
+        console.log('DeepSeek返回内容前500字符:', cleanedResponse.substring(0, 500));
+        result = null;
+      }
+    } catch (error) {
+      console.error('❌ DeepSeek调用也失败:', error.message);
+      result = null;
+    }
+  }
+  
+  // 如果两个AI都失败，返回默认结构
+  if (!result || !result.categories) {
+    console.error('❌ 所有AI都返回了不完整的数据，使用默认结构');
+    
     result = {
       overallSummary: '分析数据格式异常，请重新分析',
       totalRecords: notes.length,
