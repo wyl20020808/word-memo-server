@@ -180,9 +180,16 @@ router.get('/analysis', async (req, res) => {
         keyPoints: safeParseJSON(analysis.key_points),
         suggestions: safeParseJSON(analysis.suggestions),
         analyzedAt: analysis.analyzed_at,
-        activitySummary: analysis.activity_summary || '',
+        // 新格式字段
+        overallSummary: analysis.activity_summary || analysis.summary || '',
+        activitySummary: analysis.activity_summary || analysis.summary || '',
         activityCategories: safeParseJSON(analysis.activity_categories),
+        categories: safeParseJSON(analysis.activity_categories), // 前端期望的字段名
         recentHighlights: safeParseJSON(analysis.recent_highlights),
+        highlights: safeParseJSON(analysis.recent_highlights), // 前端期望的字段名
+        weeklyTrend: null, // 旧数据没有这个字段
+        totalRecords: analysis.notes_count || 0,
+        dateRange: '近7天',
         needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
       }
     });
