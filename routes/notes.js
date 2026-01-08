@@ -317,6 +317,8 @@ async function performActivityAnalysis(notes) {
     totalRecords: result.totalRecords || notes.length,
     dateRange: result.dateRange || ''
   };
+}
+
 // 保存分析结果到数据库（带重试）
 async function saveAnalysisResult(userId, analysisResult, notesCount) {
   await pool.executeWithRetry(
