@@ -211,27 +211,25 @@ async function performActivityAnalysis(notes) {
 
   const systemPrompt = `你是一个专业的生活分析师。请仔细分析用户的记录，将活动分类整理，并给出深度洞察。
 
-请严格按以下JSON格式返回（不要添加任何其他内容）：
+**重要：必须返回严格的JSON格式，不要有任何额外的文字说明。**
+
+返回格式示例：
 {
-  "overallSummary": "整体总结（50字以内，概括用户这段时间的生活状态和重心）",
+  "overallSummary": "整体总结文字",
   "totalRecords": ${notes.length},
-  "dateRange": "分析的时间范围描述",
+  "dateRange": "近7天",
   "categories": [
     {
       "id": "study",
       "name": "📚 学习成长",
       "color": "#667eea",
-      "percentage": 30,
-      "count": 3,
-      "summary": "这个板块的总结（30字以内）",
+      "percentage": 40,
+      "count": 4,
+      "summary": "学习板块总结",
       "activities": [
-        {
-          "title": "具体活动名称",
-          "detail": "活动详情描述",
-          "time": "时间信息"
-        }
+        {"title": "活动标题", "detail": "活动详情", "time": "时间"}
       ],
-      "insight": "针对这个板块的洞察或建议（30字以内）"
+      "insight": "洞察建议"
     },
     {
       "id": "work",
@@ -239,9 +237,9 @@ async function performActivityAnalysis(notes) {
       "color": "#f093fb",
       "percentage": 25,
       "count": 2,
-      "summary": "工作相关总结",
+      "summary": "工作板块总结",
       "activities": [],
-      "insight": "工作方面的洞察"
+      "insight": "工作建议"
     },
     {
       "id": "entertainment",
@@ -249,80 +247,134 @@ async function performActivityAnalysis(notes) {
       "color": "#4facfe",
       "percentage": 20,
       "count": 2,
-      "summary": "娱乐活动总结",
+      "summary": "娱乐板块总结",
       "activities": [],
-      "insight": "娱乐方面的建议"
+      "insight": "娱乐建议"
     },
     {
       "id": "thinking",
       "name": "💭 思考感悟",
       "color": "#43e97b",
-      "percentage": 15,
+      "percentage": 10,
       "count": 1,
-      "summary": "思考内容总结",
+      "summary": "思考板块总结",
       "activities": [],
-      "insight": "思考方面的点评"
+      "insight": "思考建议"
     },
     {
       "id": "daily",
       "name": "🏠 日常生活",
       "color": "#fa709a",
-      "percentage": 10,
+      "percentage": 5,
       "count": 1,
-      "summary": "日常活动总结",
+      "summary": "日常板块总结",
       "activities": [],
-      "insight": "生活方面的建议"
+      "insight": "生活建议"
     }
   ],
   "highlights": [
-    {
-      "icon": "🌟",
-      "title": "亮点标题",
-      "content": "亮点内容描述（40字以内）"
-    }
+    {"icon": "🌟", "title": "亮点标题", "content": "亮点内容"}
   ],
   "weeklyTrend": {
-    "mostActiveDay": "最活跃的日期",
-    "mostActiveCategory": "最活跃的类别",
-    "suggestion": "基于趋势的建议（40字以内）"
+    "mostActiveDay": "最活跃日期",
+    "mostActiveCategory": "最活跃类别",
+    "suggestion": "趋势建议"
   }
 }
 
 分类规则：
-- 📚 学习成长：背单词、看书、学习课程、考研复习、技能提升等
-- 💼 工作事务：工作任务、项目进展、会议、职业相关等
-- 🎮 休闲娱乐：游戏、看剧、听音乐、社交活动、运动健身等
-- 💭 思考感悟：反思、计划、灵感、情绪记录、人生思考等
-- 🏠 日常生活：吃饭、购物、家务、出行、健康等
+- 📚 学习成长：背单词、看书、学习课程、考研复习、技能提升
+- 💼 工作事务：工作任务、项目进展、会议、职业相关
+- 🎮 休闲娱乐：游戏、看剧、听音乐、社交活动、运动健身
+- 💭 思考感悟：反思、计划、灵感、情绪记录、人生思考
+- 🏠 日常生活：吃饭、购物、家务、出行、健康
 
 要求：
-1. percentage 所有类别加起来必须等于100
-2. 如果某类别没有相关记录，percentage设为0，activities为空数组
-3. 每个类别最多列出3个具体活动
-4. highlights 提取2-3个最值得关注的亮点
-5. 所有文字要简洁有力，避免啰嗦
-6. 只返回JSON，不要有任何其他文字`;
+1. percentage总和必须等于100
+2. 如果某类别无记录，percentage设为0，activities为空数组
+3. 每个类别最多3个activities
+4. highlights提取2-3个亮点
+5. 所有文字简洁，避免使用特殊符号和换行
+6. **只返回JSON，不要任何其他内容**`;
 
   const aiResponse = await callAI([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `请分析以下${notes.length}条记录：\n\n${contentList}` }
   ], { temperature: 0.7, maxTokens: 2500 });
 
-  const result = parseAIJSON(aiResponse);
-  if (!result) {
-    throw new Error('AI返回格式错误');
+  // 清理 AI 返回的内容
+  let cleanedResponse = aiResponse.trim();
+  
+  // 移除可能的 markdown 代码块标记
+  cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+  
+  // 尝试解析
+  let result = parseAIJSON(cleanedResponse);
+  
+  // 如果解析失败或数据不完整，返回默认结构
+  if (!result || !result.categories) {
+    console.error('AI返回格式错误，使用默认结构');
+    console.log('AI返回内容前500字符:', cleanedResponse.substring(0, 500));
+    
+    // 返回默认结构
+    result = {
+      overallSummary: '分析数据格式异常，请重新分析',
+      totalRecords: notes.length,
+      dateRange: '近7天',
+      categories: [
+        {
+          id: 'study',
+          name: '📚 学习成长',
+          color: '#667eea',
+          percentage: 0,
+          count: 0,
+          summary: '暂无数据',
+          activities: [],
+          insight: '请重新触发分析'
+        }
+      ],
+      highlights: [],
+      weeklyTrend: {
+        mostActiveDay: '未知',
+        mostActiveCategory: '未知',
+        suggestion: '数据异常，请重新分析'
+      }
+    };
+  }
+
+  // 数据验证和修复
+  if (!Array.isArray(result.categories)) {
+    result.categories = [];
+  }
+  
+  // 确保每个 category 都有必需的字段
+  result.categories = result.categories.map(cat => ({
+    id: cat.id || 'unknown',
+    name: cat.name || '未知类别',
+    color: cat.color || '#999999',
+    percentage: typeof cat.percentage === 'number' ? cat.percentage : 0,
+    count: typeof cat.count === 'number' ? cat.count : 0,
+    summary: cat.summary || '',
+    activities: Array.isArray(cat.activities) ? cat.activities : [],
+    insight: cat.insight || ''
+  }));
+  
+  // 确保 highlights 是数组
+  if (!Array.isArray(result.highlights)) {
+    result.highlights = [];
   }
 
   return {
-    summary: result.overallSummary || '',
-    keyPoints: result.highlights ? result.highlights.map(h => h.content) : [],
-    suggestions: result.weeklyTrend ? [result.weeklyTrend.suggestion] : [],
-    activitySummary: result.overallSummary || '',
+    summary: result.overallSummary || '分析完成',
+    keyPoints: result.highlights ? result.highlights.map(h => h.content || h.title || '') : [],
+    suggestions: result.weeklyTrend ? [result.weeklyTrend.suggestion || ''] : [],
+    activitySummary: result.overallSummary || '分析完成',
     activityCategories: result.categories || [],
     recentHighlights: result.highlights || [],
     weeklyTrend: result.weeklyTrend || null,
     totalRecords: result.totalRecords || notes.length,
-    dateRange: result.dateRange || ''
+    dateRange: result.dateRange || '近7天'
   };
 }
 

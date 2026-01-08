@@ -100,7 +100,7 @@ async function callAI(messages, options = {}) {
 }
 
 /**
- * 解析AI返回的JSON内容
+ * 解析AI返回的JSON内容 - 增强版
  * @param {string} content - AI返回的原始内容
  * @returns {Object|Array|null} 解析后的JSON对象，失败返回null
  */
@@ -109,18 +109,35 @@ function parseAIJSON(content) {
     // 尝试直接解析
     return JSON.parse(content);
   } catch (e) {
-    // 尝试提取JSON部分
-    const jsonMatch = content.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+    console.log('直接解析失败，尝试清洗数据...');
+    
+    // 清洗步骤1: 移除 markdown 代码块标记
+    let cleaned = content.trim();
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+    cleaned = cleaned.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+    
+    // 清洗步骤2: 移除可能的前后说明文字，只保留 JSON 部分
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]);
-      } catch (e2) {
-        console.error('JSON解析失败:', e2.message);
-        console.log('原始内容:', content);
-        return null;
-      }
+      cleaned = jsonMatch[0];
     }
-    return null;
+    
+    // 清洗步骤3: 修复常见的 JSON 错误
+    // 修复尾部逗号
+    cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+    // 修复单引号
+    cleaned = cleaned.replace(/'/g, '"');
+    // 移除注释
+    cleaned = cleaned.replace(/\/\/.*/g, '');
+    cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '');
+    
+    try {
+      return JSON.parse(cleaned);
+    } catch (e2) {
+      console.error('清洗后仍然解析失败:', e2.message);
+      console.log('清洗后内容前500字符:', cleaned.substring(0, 500));
+      return null;
+    }
   }
 }
 
