@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const { pool } = require('../config/database');
 const { callAI, parseAIJSON } = require('../services/aiService');
 const { authenticateToken } = require('../middleware/auth');
@@ -209,13 +209,13 @@ async function performActivityAnalysis(notes) {
     return `${date} ${time} ${category} ${note.original_content}`;
   }).join('\n');
 
-  const systemPrompt = `你是一个专业的生活分析师。请仔细分析用户的记录，将活动分类整理，并给出深度洞察。
+  const systemPrompt = `你是一个专业的生活分析师。请仔细分析用户的记录，将活动分类整理。
 
-**重要：必须返回严格的JSON格式，不要有任何额外的文字说明。**
+**重要：必须返回完整且严格的JSON格式，确保所有括号都闭合！**
 
-返回格式示例：
+返回格式（必须完整）：
 {
-  "overallSummary": "整体总结文字",
+  "overallSummary": "整体总结（30字内）",
   "totalRecords": ${notes.length},
   "dateRange": "近7天",
   "categories": [
@@ -225,82 +225,70 @@ async function performActivityAnalysis(notes) {
       "color": "#667eea",
       "percentage": 40,
       "count": 4,
-      "summary": "学习板块总结",
+      "summary": "学习总结（20字内）",
       "activities": [
-        {"title": "活动标题", "detail": "活动详情", "time": "时间"}
+        {"title": "活动1", "detail": "详情", "time": "时间"}
       ],
-      "insight": "洞察建议"
-    },
-    {
-      "id": "work",
-      "name": "💼 工作事务",
-      "color": "#f093fb",
-      "percentage": 25,
-      "count": 2,
-      "summary": "工作板块总结",
-      "activities": [],
-      "insight": "工作建议"
+      "insight": "建议（20字内）"
     },
     {
       "id": "entertainment",
       "name": "🎮 休闲娱乐",
       "color": "#4facfe",
-      "percentage": 20,
-      "count": 2,
-      "summary": "娱乐板块总结",
+      "percentage": 30,
+      "count": 3,
+      "summary": "娱乐总结",
       "activities": [],
-      "insight": "娱乐建议"
+      "insight": "建议"
     },
     {
       "id": "thinking",
       "name": "💭 思考感悟",
       "color": "#43e97b",
-      "percentage": 10,
-      "count": 1,
-      "summary": "思考板块总结",
+      "percentage": 20,
+      "count": 2,
+      "summary": "思考总结",
       "activities": [],
-      "insight": "思考建议"
+      "insight": "建议"
     },
     {
       "id": "daily",
       "name": "🏠 日常生活",
       "color": "#fa709a",
-      "percentage": 5,
+      "percentage": 10,
       "count": 1,
-      "summary": "日常板块总结",
+      "summary": "日常总结",
       "activities": [],
-      "insight": "生活建议"
+      "insight": "建议"
     }
   ],
   "highlights": [
-    {"icon": "🌟", "title": "亮点标题", "content": "亮点内容"}
+    {"icon": "", "title": "亮点", "content": "内容"}
   ],
   "weeklyTrend": {
-    "mostActiveDay": "最活跃日期",
-    "mostActiveCategory": "最活跃类别",
-    "suggestion": "趋势建议"
+    "mostActiveDay": "日期",
+    "mostActiveCategory": "类别",
+    "suggestion": "建议"
   }
 }
 
 分类规则：
-- 📚 学习成长：背单词、看书、学习课程、考研复习、技能提升
-- 💼 工作事务：工作任务、项目进展、会议、职业相关
-- 🎮 休闲娱乐：游戏、看剧、听音乐、社交活动、运动健身
-- 💭 思考感悟：反思、计划、灵感、情绪记录、人生思考
-- 🏠 日常生活：吃饭、购物、家务、出行、健康
+- 📚 学习成长：学习、背单词、看书、技能提升
+- 🎮 休闲娱乐：游戏、看剧、运动、社交
+- 💭 思考感悟：反思、计划、灵感、情绪
+- 🏠 日常生活：吃饭、购物、家务、出行
 
 要求：
-1. percentage总和必须等于100
-2. 如果某类别无记录，percentage设为0，activities为空数组
-3. 每个类别最多3个activities
-4. highlights提取2-3个亮点
-5. 所有文字简洁，避免使用特殊符号和换行
-6. **只返回JSON，不要任何其他内容**`;
+1. percentage总和=100
+2. 每个类别最多2个activities
+3. 所有文字简短（避免超长导致截断）
+4. **确保JSON完整，所有括号闭合**
+5. **只返回JSON，不要其他内容**`;
 
   const aiResponse = await callAI([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `请分析以下${notes.length}条记录：\n\n${contentList}` }
-  ], { temperature: 0.7, maxTokens: 2500 });
+  ], { temperature: 0.7, maxTokens: 3500 }); // 增加 token 限制
 
   // 清理 AI 返回的内容
   let cleanedResponse = aiResponse.trim();
@@ -461,3 +449,4 @@ router.post('/analyze', async (req, res) => {
 });
 
 module.exports = router;
+
