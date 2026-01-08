@@ -123,7 +123,7 @@ router.get('/analysis', async (req, res) => {
     try {
       [results] = await pool.execute(
         `SELECT id, summary, key_points, suggestions, analyzed_at, 
-                activity_summary, activity_categories, recent_highlights
+                activity_summary, activity_categories, recent_highlights, notes_count
          FROM ai_notes_analysis 
          WHERE user_id = ? 
          ORDER BY analyzed_at DESC 
@@ -149,10 +149,19 @@ router.get('/analysis', async (req, res) => {
 
     if (results.length === 0) {
       // 没有分析结果，直接返回null，不触发分析
+      console.log('📊 没有找到分析结果');
       return res.json({ success: true, data: null });
     }
 
     const analysis = results[0];
+    console.log('📊 数据库原始数据:', {
+      activity_summary: analysis.activity_summary,
+      activity_categories_type: typeof analysis.activity_categories,
+      activity_categories_length: analysis.activity_categories?.length,
+      activity_categories_preview: analysis.activity_categories?.substring(0, 200),
+      recent_highlights_type: typeof analysis.recent_highlights,
+      recent_highlights_preview: analysis.recent_highlights?.substring(0, 200)
+    });
     
     // 安全解析 JSON 字段
     const safeParseJSON = (str, defaultVal = []) => {
@@ -161,6 +170,7 @@ router.get('/analysis', async (req, res) => {
         const parsed = JSON.parse(str);
         return Array.isArray(parsed) ? parsed : defaultVal;
       } catch (e) {
+        console.error('JSON解析失败:', e.message, '原始数据:', str?.substring(0, 100));
         // 如果不是有效JSON，可能是纯文本，转为数组
         return typeof str === 'string' ? [str] : defaultVal;
       }
@@ -171,27 +181,44 @@ router.get('/analysis', async (req, res) => {
     const now = new Date();
     const hoursSinceAnalysis = (now - lastAnalyzed) / (1000 * 60 * 60);
     
+    const categories = safeParseJSON(analysis.activity_categories);
+    const highlights = safeParseJSON(analysis.recent_highlights);
+    
+    console.log('📊 解析后的数据:', {
+      categories_count: categories.length,
+      categories_sample: categories[0],
+      highlights_count: highlights.length
+    });
+    
     // 返回数据，包含是否需要更新的标记（让前端决定是否提示用户手动更新）
+    const responseData = {
+      id: analysis.id,
+      summary: analysis.summary,
+      keyPoints: safeParseJSON(analysis.key_points),
+      suggestions: safeParseJSON(analysis.suggestions),
+      analyzedAt: analysis.analyzed_at,
+      // 新格式字段
+      overallSummary: analysis.activity_summary || analysis.summary || '',
+      activitySummary: analysis.activity_summary || analysis.summary || '',
+      activityCategories: categories,
+      categories: categories, // 前端期望的字段名
+      recentHighlights: highlights,
+      highlights: highlights, // 前端期望的字段名
+      weeklyTrend: null, // TODO: 从数据库读取
+      totalRecords: analysis.notes_count || 0,
+      dateRange: '近7天',
+      needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
+    };
+    
+    console.log('📊 返回给前端的数据:', {
+      overallSummary: responseData.overallSummary,
+      categories_count: responseData.categories.length,
+      highlights_count: responseData.highlights.length
+    });
+    
     res.json({
       success: true,
-      data: {
-        id: analysis.id,
-        summary: analysis.summary,
-        keyPoints: safeParseJSON(analysis.key_points),
-        suggestions: safeParseJSON(analysis.suggestions),
-        analyzedAt: analysis.analyzed_at,
-        // 新格式字段
-        overallSummary: analysis.activity_summary || analysis.summary || '',
-        activitySummary: analysis.activity_summary || analysis.summary || '',
-        activityCategories: safeParseJSON(analysis.activity_categories),
-        categories: safeParseJSON(analysis.activity_categories), // 前端期望的字段名
-        recentHighlights: safeParseJSON(analysis.recent_highlights),
-        highlights: safeParseJSON(analysis.recent_highlights), // 前端期望的字段名
-        weeklyTrend: null, // 旧数据没有这个字段
-        totalRecords: analysis.notes_count || 0,
-        dateRange: '近7天',
-        needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
-      }
+      data: responseData
     });
 
   } catch (error) {
