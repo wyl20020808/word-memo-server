@@ -476,7 +476,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // 记录学习进度
 router.post('/learn', authenticateToken, async (req, res) => {
   try {
-    const { word, rating } = req.body;
+    const { word, rating, timeSpent } = req.body;
     const userId = req.user.userId;
     
     if (!word) {
@@ -502,6 +502,21 @@ router.post('/learn', authenticateToken, async (req, res) => {
       'INSERT INTO user_word_records (user_id, word_id, rating, learned_count, last_learned_at) VALUES (?, ?, ?, 1, NOW()) ON DUPLICATE KEY UPDATE rating = VALUES(rating), learned_count = learned_count + 1, last_learned_at = NOW()',
       [userId, wordId, rating || 0]
     );
+
+    // 写入学习日志（用于行为统计：频率/时段/趋势）
+    // 注意：time_spent 单位为秒，前端可选上报；没有就记0，后续可用“事件数→估算时长”
+    try {
+      const quality = Math.max(0, Math.min(5, parseInt(rating || 0)));
+      const seconds = Math.max(0, Math.min(6 * 3600, parseInt(timeSpent || 0)));
+      await pool.execute(
+        `INSERT INTO learning_logs (user_id, word_id, action, quality, time_spent, is_correct)
+         VALUES (?, ?, 'learn', ?, ?, 1)`,
+        [userId, wordId, quality, seconds]
+      );
+    } catch (logErr) {
+      // 日志失败不影响主流程
+      console.warn('⚠️ 写入 learning_logs 失败:', logErr.message);
+    }
     
     // 更新今日统计
     const today = new Date().toISOString().split('T')[0];

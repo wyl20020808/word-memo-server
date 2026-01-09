@@ -1,9 +1,8 @@
-﻿const express = require('express');
+const express = require('express');
 const { pool } = require('../config/database');
 const { callAI, parseAIJSON } = require('../services/aiService');
 const { authenticateToken } = require('../middleware/auth');
 const { createTask, TaskType } = require('../services/aiTaskManager');
-const LearningGrowthService = require('../services/learningGrowthService');
 
 const router = express.Router();
 
@@ -124,7 +123,7 @@ router.get('/analysis', async (req, res) => {
     try {
       [results] = await pool.execute(
         `SELECT id, summary, key_points, suggestions, analyzed_at, 
-                activity_summary, activity_categories, recent_highlights, notes_count
+                activity_summary, activity_categories, recent_highlights
          FROM ai_notes_analysis 
          WHERE user_id = ? 
          ORDER BY analyzed_at DESC 
@@ -150,44 +149,21 @@ router.get('/analysis', async (req, res) => {
 
     if (results.length === 0) {
       // 没有分析结果，直接返回null，不触发分析
-      console.log('📊 没有找到分析结果');
       return res.json({ success: true, data: null });
     }
 
     const analysis = results[0];
-    console.log('📊 数据库原始数据:', {
-      activity_summary: analysis.activity_summary,
-      activity_categories_type: typeof analysis.activity_categories,
-      activity_categories_isArray: Array.isArray(analysis.activity_categories),
-      activity_categories_preview: typeof analysis.activity_categories === 'string' 
-        ? analysis.activity_categories.substring(0, 200)
-        : JSON.stringify(analysis.activity_categories).substring(0, 200),
-      recent_highlights_type: typeof analysis.recent_highlights,
-      recent_highlights_preview: typeof analysis.recent_highlights === 'string'
-        ? analysis.recent_highlights.substring(0, 200)
-        : JSON.stringify(analysis.recent_highlights).substring(0, 200)
-    });
     
     // 安全解析 JSON 字段
     const safeParseJSON = (str, defaultVal = []) => {
-      // 如果已经是对象/数组，直接返回
-      if (typeof str === 'object' && str !== null) {
-        return Array.isArray(str) ? str : defaultVal;
-      }
-      // 如果是空值，返回默认值
       if (!str) return defaultVal;
-      // 如果是字符串，尝试解析
-      if (typeof str === 'string') {
-        try {
-          const parsed = JSON.parse(str);
-          return Array.isArray(parsed) ? parsed : defaultVal;
-        } catch (e) {
-          console.error('JSON解析失败:', e.message, '原始数据:', str?.substring(0, 100));
-          // 如果不是有效JSON，可能是纯文本，转为数组
-          return [str];
-        }
+      try {
+        const parsed = JSON.parse(str);
+        return Array.isArray(parsed) ? parsed : defaultVal;
+      } catch (e) {
+        // 如果不是有效JSON，可能是纯文本，转为数组
+        return typeof str === 'string' ? [str] : defaultVal;
       }
-      return defaultVal;
     };
     
     // 计算分析结果的新鲜度
@@ -195,54 +171,27 @@ router.get('/analysis', async (req, res) => {
     const now = new Date();
     const hoursSinceAnalysis = (now - lastAnalyzed) / (1000 * 60 * 60);
     
-    const categories = safeParseJSON(analysis.activity_categories);
-    const highlights = safeParseJSON(analysis.recent_highlights);
-    
-    // 获取学习成长统计数据
-    let learningGrowth = null;
-    try {
-      learningGrowth = await LearningGrowthService.getGrowthStats(userId);
-    } catch (err) {
-      console.error('获取学习成长统计失败:', err);
-    }
-    
-    console.log('📊 解析后的数据:', {
-      categories_count: categories.length,
-      categories_sample: categories[0],
-      highlights_count: highlights.length,
-      has_growth_stats: !!learningGrowth
-    });
-    
     // 返回数据，包含是否需要更新的标记（让前端决定是否提示用户手动更新）
-    const responseData = {
-      id: analysis.id,
-      summary: analysis.summary,
-      keyPoints: safeParseJSON(analysis.key_points),
-      suggestions: safeParseJSON(analysis.suggestions),
-      analyzedAt: analysis.analyzed_at,
-      // 新格式字段
-      overallSummary: analysis.activity_summary || analysis.summary || '',
-      activitySummary: analysis.activity_summary || analysis.summary || '',
-      activityCategories: categories,
-      categories: categories, // 前端期望的字段名
-      recentHighlights: highlights,
-      highlights: highlights, // 前端期望的字段名
-      weeklyTrend: null, // TODO: 从数据库读取
-      learningGrowth: learningGrowth, // 新增学习成长统计
-      totalRecords: analysis.notes_count || 0,
-      dateRange: '近7天',
-      needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
-    };
-    
-    console.log('📊 返回给前端的数据:', {
-      overallSummary: responseData.overallSummary,
-      categories_count: responseData.categories.length,
-      highlights_count: responseData.highlights.length
-    });
-    
     res.json({
       success: true,
-      data: responseData
+      data: {
+        id: analysis.id,
+        summary: analysis.summary,
+        keyPoints: safeParseJSON(analysis.key_points),
+        suggestions: safeParseJSON(analysis.suggestions),
+        analyzedAt: analysis.analyzed_at,
+        // 新格式字段
+        overallSummary: analysis.activity_summary || analysis.summary || '',
+        activitySummary: analysis.activity_summary || analysis.summary || '',
+        activityCategories: safeParseJSON(analysis.activity_categories),
+        categories: safeParseJSON(analysis.activity_categories), // 前端期望的字段名
+        recentHighlights: safeParseJSON(analysis.recent_highlights),
+        highlights: safeParseJSON(analysis.recent_highlights), // 前端期望的字段名
+        weeklyTrend: null, // 旧数据没有这个字段
+        totalRecords: analysis.notes_count || 0,
+        dateRange: '近7天',
+        needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
+      }
     });
 
   } catch (error) {
@@ -251,7 +200,7 @@ router.get('/analysis', async (req, res) => {
   }
 });
 
-// AI活动分析函数 - 详细分类版（带fallback）
+// AI活动分析函数 - 详细分类版
 async function performActivityAnalysis(notes) {
   const contentList = notes.map(note => {
     const date = new Date(note.created_at).toLocaleDateString('zh-CN');
@@ -314,7 +263,7 @@ async function performActivityAnalysis(notes) {
     }
   ],
   "highlights": [
-    {"icon": "✨", "title": "亮点", "content": "内容"}
+    {"icon": "�", 常"title": "亮点", "content": "内容"}
   ],
   "weeklyTrend": {
     "mostActiveDay": "日期",
@@ -336,80 +285,27 @@ async function performActivityAnalysis(notes) {
 4. **确保JSON完整，所有括号闭合**
 5. **只返回JSON，不要其他内容**`;
 
-  const messages = [
+  const aiResponse = await callAI([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `请分析以下${notes.length}条记录：\n\n${contentList}` }
-  ];
+  ], { temperature: 0.7, maxTokens: 3500 }); // 增加 token 限制
 
-  let result = null;
-  let aiResponse = null;
-
-  // 第一次尝试：使用豆包
-  try {
-    console.log('🎯 第一次尝试：使用豆包 API');
-    aiResponse = await callAI(messages, { 
-      temperature: 0.7, 
-      maxTokens: 3500,
-      preferredProvider: 'Doubao'
-    });
-
-    // 清理 AI 返回的内容
-    let cleanedResponse = aiResponse.trim();
-    cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
-    cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
-    
-    // 尝试解析
-    result = parseAIJSON(cleanedResponse);
-    
-    // 验证数据完整性
-    if (result && result.categories && Array.isArray(result.categories) && result.categories.length > 0) {
-      console.log('✅ 豆包返回数据完整，解析成功');
-    } else {
-      console.warn('⚠️ 豆包返回数据不完整，准备使用备用AI');
-      console.log('豆包返回内容前500字符:', cleanedResponse.substring(0, 500));
-      result = null; // 标记为失败，触发fallback
-    }
-  } catch (error) {
-    console.error('❌ 豆包调用失败:', error.message);
-    result = null;
-  }
-
-  // 第二次尝试：如果豆包失败，使用DeepSeek
-  if (!result) {
-    try {
-      console.log('🔄 第二次尝试：使用 DeepSeek API');
-      aiResponse = await callAI(messages, { 
-        temperature: 0.7, 
-        maxTokens: 3500,
-        preferredProvider: 'DeepSeek'
-      });
-
-      // 清理 AI 返回的内容
-      let cleanedResponse = aiResponse.trim();
-      cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
-      cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
-      
-      // 尝试解析
-      result = parseAIJSON(cleanedResponse);
-      
-      // 验证数据完整性
-      if (result && result.categories && Array.isArray(result.categories) && result.categories.length > 0) {
-        console.log('✅ DeepSeek返回数据完整，解析成功');
-      } else {
-        console.warn('⚠️ DeepSeek返回数据也不完整');
-        console.log('DeepSeek返回内容前500字符:', cleanedResponse.substring(0, 500));
-        result = null;
-      }
-    } catch (error) {
-      console.error('❌ DeepSeek调用也失败:', error.message);
-      result = null;
-    }
-  }
+  // 清理 AI 返回的内容
+  let cleanedResponse = aiResponse.trim();
   
-  // 如果两个AI都失败，返回默认结构
+  // 移除可能的 markdown 代码块标记
+  cleanedResponse = cleanedResponse.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  cleanedResponse = cleanedResponse.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+  
+  // 尝试解析
+  let result = parseAIJSON(cleanedResponse);
+  
+  // 如果解析失败或数据不完整，返回默认结构
   if (!result || !result.categories) {
-    console.error('❌ 所有AI都返回了不完整的数据，使用默认结构');
+    console.error('AI返回格式错误，使用默认结构');
+    console.log('AI返回内容前500字符:', cleanedResponse.substring(0, 500));
     
+    // 返回默认结构
     result = {
       overallSummary: '分析数据格式异常，请重新分析',
       totalRecords: notes.length,
@@ -553,4 +449,3 @@ router.post('/analyze', async (req, res) => {
 });
 
 module.exports = router;
-
