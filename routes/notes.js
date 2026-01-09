@@ -4,6 +4,7 @@ const { callAI, parseAIJSON } = require('../services/aiService');
 const { authenticateToken } = require('../middleware/auth');
 const { createTask, TaskType } = require('../services/aiTaskManager');
 const LearningGrowthService = require('../services/learningGrowthService');
+const GlobalStatsService = require('../services/globalStatsService');
 
 const router = express.Router();
 
@@ -206,11 +207,20 @@ router.get('/analysis', async (req, res) => {
       console.error('获取学习成长统计失败:', err);
     }
     
+    // 获取全局行为总览
+    let globalOverview = null;
+    try {
+      globalOverview = await GlobalStatsService.getOverviewStats(userId);
+    } catch (err) {
+      console.error('获取全局总览失败:', err);
+    }
+    
     console.log('📊 解析后的数据:', {
       categories_count: categories.length,
       categories_sample: categories[0],
       highlights_count: highlights.length,
-      has_growth_stats: !!learningGrowth
+      has_growth_stats: !!learningGrowth,
+      has_overview: !!globalOverview
     });
     
     // 返回数据，包含是否需要更新的标记（让前端决定是否提示用户手动更新）
@@ -228,7 +238,8 @@ router.get('/analysis', async (req, res) => {
       recentHighlights: highlights,
       highlights: highlights, // 前端期望的字段名
       weeklyTrend: null, // TODO: 从数据库读取
-      learningGrowth: learningGrowth, // 新增学习成长统计
+      learningGrowth: learningGrowth, // 学习成长统计
+      globalOverview: globalOverview, // 全局总览统计
       totalRecords: analysis.notes_count || 0,
       dateRange: '近7天',
       needsUpdate: hoursSinceAnalysis >= 3 // 告诉前端是否需要更新
