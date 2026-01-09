@@ -256,8 +256,10 @@ async function performActivityAnalysis(notes) {
   const contentList = notes.map(note => {
     const date = new Date(note.created_at).toLocaleDateString('zh-CN');
     const time = new Date(note.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const weekday = new Date(note.created_at).getDay(); // 0 is Sunday
+    const isWeekend = (weekday === 0 || weekday === 6) ? '[周末]' : '';
     const category = note.category ? `[${note.category}]` : '';
-    return `${date} ${time} ${category} ${note.original_content}`;
+    return `${date} ${isWeekend}${time} ${category} ${note.original_content}`;
   }).join('\n');
 
   const systemPrompt = `你是一个专业的生活分析师。请仔细分析用户的记录，将活动分类整理。
@@ -290,7 +292,12 @@ async function performActivityAnalysis(notes) {
       "count": 3,
       "summary": "娱乐总结",
       "activities": [],
-      "insight": "建议"
+      "insight": "建议",
+      "stats": {
+        "subTypes": [{"name": "游戏", "count": 2}, {"name": "电影", "count": 1}],
+        "timeDistribution": {"morning": 0, "afternoon": 1, "evening": 2, "lateNight": 0, "weekend": 1},
+        "intervals": [12, 24, 5]
+      }
     },
     {
       "id": "thinking",
