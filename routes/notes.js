@@ -307,7 +307,13 @@ async function performActivityAnalysis(notes) {
       "count": 2,
       "summary": "思考总结",
       "activities": [],
-      "insight": "建议"
+      "insight": "建议",
+      "stats": {
+        "themes": [{"name": "焦虑", "percent": 40}, {"name": "规划", "percent": 60}],
+        "potentialThemes": ["人际关系", "健康"],
+        "frequency": [0, 1, 0, 0, 2, 0, 0],
+        "depthStats": {"min": 50, "max": 200, "avg": 120, "label": "字数"}
+      }
     },
     {
       "id": "daily",
