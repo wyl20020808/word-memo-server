@@ -456,7 +456,8 @@ async function performActivityAnalysis(notes) {
     count: typeof cat.count === 'number' ? cat.count : 0,
     summary: cat.summary || '',
     activities: Array.isArray(cat.activities) ? cat.activities : [],
-    insight: cat.insight || ''
+    insight: cat.insight || '',
+    stats: cat.stats || null // 保留 stats 字段
   }));
   
   // 确保 highlights 是数组
