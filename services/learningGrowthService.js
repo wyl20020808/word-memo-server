@@ -63,13 +63,12 @@ class LearningGrowthService {
           AND answered_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       `, [userId]);
 
-      // 3. 考研其他科目时长 (数学、政治、专业课 - 从user_study_stats表获取)
-      // 注意：这里假设 user_study_stats 按日记录，需要聚合
+      // 3. 考研其他科目时长 (数学、政治、专业课 - 从study_progress表获取)
       const [pgStats] = await pool.execute(`
         SELECT 
           subject,
           SUM(study_time) as total_minutes
-        FROM user_study_stats
+        FROM study_progress
         WHERE user_id = ?
           AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
           AND subject IN ('math', 'politics', 'major')
@@ -141,7 +140,7 @@ class LearningGrowthService {
 
       // 获取考研打卡记录 (用于补充频率)
       const [studyStats] = await pool.execute(`
-        SELECT date, subject FROM user_study_stats
+        SELECT date, subject FROM study_progress
         WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
       `, [userId]);
 
@@ -297,12 +296,12 @@ class LearningGrowthService {
         GROUP BY DATE(answered_at)
       `, [userId, userId]);
 
-      // 3. 考研学习 (user_study_stats, 单位 minutes -> seconds)
+      // 3. 考研学习 (study_progress, 单位 minutes -> seconds)
       const [pgLogs] = await pool.execute(`
         SELECT 
           date,
           SUM(study_time) * 60 as seconds
-        FROM user_study_stats
+        FROM study_progress
         WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
         GROUP BY date
       `, [userId]);
