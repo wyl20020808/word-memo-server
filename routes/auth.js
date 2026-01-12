@@ -121,16 +121,56 @@ router.post('/login', async (req, res) => {
       
       // 更新用户信息
       try {
-        if (userInfo?.nickName || userInfo?.avatarUrl) {
-          await pool.execute(
-            'UPDATE users SET nickname = ?, avatar_url = ? WHERE id = ?',
-            [userInfo?.nickName || user.nickname, userInfo?.avatarUrl || user.avatar_url, user.id]
-          );
-          
-          // 更新本地user对象
-          if (userInfo?.nickName) user.nickname = userInfo.nickName;
-          if (userInfo?.avatarUrl) user.avatar_url = userInfo.avatarUrl;
+        // 只有当传入了有效的 nickName 或 avatarUrl 时才更新
+        // 注意：前端传入的可能是 nickName (微信) 或 nickname (自定义)，统一处理
+        const newNickname = userInfo?.nickName || userInfo?.nickname;
+        const newAvatar = userInfo?.avatarUrl;
+        
+        // 关键修复：如果用户已修改过昵称（不是默认的'微信用户'），且这次登录传入的是默认值或空，则不要覆盖！
+        // 只有当传入了非空的、有意义的值时才覆盖
+        
+        let shouldUpdate = false;
+        const updateParams = [];
+        let updateSql = 'UPDATE users SET ';
+        
+        // 如果传入了新头像，且不为空，则更新
+        if (newAvatar) {
+          updateSql += 'avatar_url = ?, ';
+          updateParams.push(newAvatar);
+          shouldUpdate = true;
+          user.avatar_url = newAvatar; // 更新内存对象
         }
+        
+        // 如果传入了新昵称，且不等于'微信用户'（除非原昵称就是空），则更新
+        // 或者强制更新逻辑：如果当前数据库是'微信用户'，则允许更新为任何非空值
+        if (newNickname && newNickname !== '微信用户') {
+           updateSql += 'nickname = ?, ';
+           updateParams.push(newNickname);
+           shouldUpdate = true;
+           user.nickname = newNickname; // 更新内存对象
+        } else if (newNickname && user.nickname === '微信用户') {
+           // 如果原来是默认值，现在也是默认值，或者现在是其他值，都可以
+           // 但这里为了防止覆盖用户改好的名字，如果新值是'微信用户'且旧值不是，则不更新
+           if (newNickname !== '微信用户') {
+             updateSql += 'nickname = ?, ';
+             updateParams.push(newNickname);
+             shouldUpdate = true;
+             user.nickname = newNickname;
+           }
+        }
+        
+        if (shouldUpdate) {
+          // 去掉最后的逗号和空格
+          updateSql = updateSql.slice(0, -2);
+          updateSql += ' WHERE id = ?';
+          updateParams.push(user.id);
+          
+          await pool.execute(updateSql, updateParams);
+          console.log('✅ 用户信息已更新:', updateParams);
+        } else {
+          console.log('ℹ️ 用户信息无需更新或为默认值，保留原值:', user.nickname);
+        }
+
       } catch (updateError) {
         console.error('更新用户信息失败:', updateError.message);
         // 不抛出错误，继续登录流程
@@ -217,10 +257,30 @@ router.put('/userinfo', async (req, res) => {
     
     console.log('📝 更新用户信息:', { userId: decoded.userId, nickname, avatarUrl: avatarUrl ? '有' : '无' });
     
-    await pool.execute(
-      'UPDATE users SET nickname = ?, avatar_url = ? WHERE id = ?',
-      [nickname || '', avatarUrl || '', decoded.userId]
-    );
+    // 动态构建SQL，支持只更新其中一个字段
+    let updateSql = 'UPDATE users SET ';
+    const updateParams = [];
+    
+    if (nickname !== undefined) {
+      updateSql += 'nickname = ?, ';
+      updateParams.push(nickname);
+    }
+    
+    if (avatarUrl !== undefined) {
+      updateSql += 'avatar_url = ?, ';
+      updateParams.push(avatarUrl);
+    }
+    
+    if (updateParams.length === 0) {
+      return res.json({ success: true, message: '无数据更新' });
+    }
+    
+    // 去掉最后的逗号和空格
+    updateSql = updateSql.slice(0, -2);
+    updateSql += ' WHERE id = ?';
+    updateParams.push(decoded.userId);
+    
+    await pool.execute(updateSql, updateParams);
     
     console.log('✅ 用户信息更新成功');
     

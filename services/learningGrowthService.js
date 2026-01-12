@@ -38,8 +38,10 @@ class LearningGrowthService {
 
   /**
    * 1. 细分内容时长占比 (单位：分钟)
-   * 背单词：learning_logs (time_spent求和，若无则按每词10秒估算)
-   * 计算机：user_major_records (time_spent求和)
+   * 聚合所有学习记录：
+   * - 背单词 (learning_logs)
+   * - 计算机 (user_major_records)
+   * - 数学/政治/专业课 (user_study_stats)
    */
   static async getDurationDistribution(userId) {
     try {
@@ -61,17 +63,50 @@ class LearningGrowthService {
           AND answered_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       `, [userId]);
 
+      // 3. 考研其他科目时长 (数学、政治、专业课 - 从user_study_stats表获取)
+      // 注意：这里假设 user_study_stats 按日记录，需要聚合
+      const [pgStats] = await pool.execute(`
+        SELECT 
+          subject,
+          SUM(study_time) as total_minutes
+        FROM user_study_stats
+        WHERE user_id = ?
+          AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND subject IN ('math', 'politics', 'major')
+        GROUP BY subject
+      `, [userId]);
+
       const wordTime = Math.round((wordStats[0]?.total_seconds || 0) / 60);
-      const majorTime = Math.round((majorStats[0]?.total_seconds || 0) / 60);
-      const total = wordTime + majorTime;
+      const majorTime = Math.round((majorStats[0]?.total_seconds || 0) / 60); // 计算机刷题
+      
+      let mathTime = 0;
+      let politicsTime = 0;
+      let pgMajorTime = 0;
+
+      pgStats.forEach(row => {
+        if (row.subject === 'math') mathTime = Number(row.total_minutes);
+        if (row.subject === 'politics') politicsTime = Number(row.total_minutes);
+        if (row.subject === 'major') pgMajorTime = Number(row.total_minutes);
+      });
+
+      // 合并计算机刷题时长到专业课，或单独列出
+      // 这里为了清晰，将"计算机知识"(主要来自刷题) 和 "考研专业课"(来自手动记录) 分开或合并
+      // 策略：合并显示为"专业课"，或者分开。这里选择分开展示更详细
+      
+      const items = [
+        { name: '背单词', value: wordTime, color: '#55efc4' },
+        { name: '计算机刷题', value: majorTime, color: '#a29bfe' },
+        { name: '数学', value: mathTime, color: '#74b9ff' },
+        { name: '政治', value: politicsTime, color: '#ff7675' },
+        { name: '专业课(学习)', value: pgMajorTime, color: '#fd79a8' }
+      ];
+
+      const total = items.reduce((sum, item) => sum + item.value, 0);
 
       return {
         chartType: 'ring',
         totalMinutes: total,
-        items: [
-          { name: '背单词', value: wordTime, color: '#55efc4' }, // 青绿色
-          { name: '计算机知识', value: majorTime, color: '#a29bfe' } // 紫色
-        ].filter(i => i.value > 0).map(i => ({
+        items: items.filter(i => i.value > 0).map(i => ({
           ...i,
           percent: total > 0 ? Math.round(i.value / total * 100) : 0
         }))
@@ -90,6 +125,12 @@ class LearningGrowthService {
   static async getFrequencyAndHeatmap(userId) {
     try {
       // 聚合所有学习行为的时间戳 (近7天用于频率，近30天用于时段热力)
+      // 1. 背单词
+      // 2. 计算机刷题
+      // 3. 考研学习记录 (user_study_stats是按天记录的，没有具体时分秒，只能取当天0点或默认时间? 
+      //    或者如果有 updated_at 可以用。这里为了热力图准确，暂不计入按天统计的记录到"时段热力"中，
+      //    只计入到"频率"中(每天算一次活跃))
+      
       const [logs] = await pool.execute(`
         SELECT created_at as active_time, 'word' as type FROM learning_logs 
         WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -97,6 +138,12 @@ class LearningGrowthService {
         SELECT answered_at as active_time, 'major' as type FROM user_major_records
         WHERE user_id = ? AND answered_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       `, [userId, userId]);
+
+      // 获取考研打卡记录 (用于补充频率)
+      const [studyStats] = await pool.execute(`
+        SELECT date, subject FROM user_study_stats
+        WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+      `, [userId]);
 
       // 处理周频率 (近7天)
       const now = new Date();
@@ -114,6 +161,7 @@ class LearningGrowthService {
       // 处理时段热力 (0-23点)
       const hourHeatmap = Array(24).fill(0);
 
+      // 处理精确时间记录 (logs) -> 贡献热力 + 频率
       logs.forEach(log => {
         const date = new Date(log.active_time);
         const hour = date.getHours();
@@ -124,7 +172,21 @@ class LearningGrowthService {
         // 频率数据 (只算近7天)
         const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
         if (diffDays < 7 && diffDays >= 0) {
-          // weekLabels是[6天前, ..., 今天]，对应 index = 6 - diffDays
+          weekFreq[6 - diffDays]++;
+        }
+      });
+
+      // 处理按天记录 (studyStats) -> 只贡献频率
+      // 注意：这里简单将每天的一条记录算作一次活跃，如果同一天有多条(多科目)，会增加频率
+      studyStats.forEach(stat => {
+        // stat.date 可能是字符串或Date
+        const date = new Date(stat.date);
+        const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+        
+        // 考研记录不贡献到"时段热力"，因为没有具体时间
+        
+        // 频率数据 (只算近7天)
+        if (diffDays < 7 && diffDays >= 0) {
           weekFreq[6 - diffDays]++;
         }
       });
@@ -217,6 +279,8 @@ class LearningGrowthService {
   static async getStudyTrend(userId) {
     try {
       // 获取近7天每一天的学习时长
+      // 1. 背单词
+      // 2. 计算机刷题
       const [logs] = await pool.execute(`
         SELECT 
           DATE(created_at) as date, 
@@ -232,6 +296,16 @@ class LearningGrowthService {
         WHERE user_id = ? AND answered_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
         GROUP BY DATE(answered_at)
       `, [userId, userId]);
+
+      // 3. 考研学习 (user_study_stats, 单位 minutes -> seconds)
+      const [pgLogs] = await pool.execute(`
+        SELECT 
+          date,
+          SUM(study_time) * 60 as seconds
+        FROM user_study_stats
+        WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+        GROUP BY date
+      `, [userId]);
 
       // 合并同一天的数据
       const dayMap = {};
@@ -251,9 +325,8 @@ class LearningGrowthService {
         // 保存日期key以便匹配，最终只返回labels和values
       }
 
-      // 填充数据
+      // 填充精确记录数据
       logs.forEach(row => {
-        // row.date可能是Date对象或字符串
         let dStr = row.date;
         if (row.date instanceof Date) {
           dStr = row.date.toISOString().split('T')[0];
@@ -262,7 +335,21 @@ class LearningGrowthService {
         }
         
         if (dayMap.hasOwnProperty(dStr)) {
-          dayMap[dStr] += row.seconds;
+          dayMap[dStr] += Number(row.seconds);
+        }
+      });
+
+      // 填充考研记录数据
+      pgLogs.forEach(row => {
+        let dStr = row.date;
+        if (row.date instanceof Date) {
+          dStr = row.date.toISOString().split('T')[0];
+        } else if (typeof row.date === 'string') {
+          dStr = row.date.split('T')[0];
+        }
+
+        if (dayMap.hasOwnProperty(dStr)) {
+          dayMap[dStr] += Number(row.seconds);
         }
       });
 
