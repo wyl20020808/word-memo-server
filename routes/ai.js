@@ -507,6 +507,57 @@ router.get('/plan', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== 主页学习计划（跨设备同步） ====================
+
+// 获取主页学习计划
+router.get('/home-plan', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    const [rows] = await pool.execute(
+      'SELECT plan_data FROM user_home_plan WHERE user_id = ?',
+      [userId]
+    );
+    
+    if (rows.length > 0 && rows[0].plan_data) {
+      const planData = JSON.parse(rows[0].plan_data);
+      res.json({ success: true, data: planData });
+    } else {
+      res.json({ success: true, data: null });
+    }
+  } catch (error) {
+    console.error('获取主页学习计划失败:', error);
+    res.status(500).json({ success: false, message: '获取学习计划失败' });
+  }
+});
+
+// 保存主页学习计划
+router.post('/home-plan', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const planData = req.body;
+    
+    if (!planData) {
+      return res.status(400).json({ success: false, message: '缺少计划数据' });
+    }
+    
+    const planJson = JSON.stringify(planData);
+    
+    // 使用 REPLACE INTO 或 INSERT ... ON DUPLICATE KEY UPDATE
+    await pool.execute(
+      `INSERT INTO user_home_plan (user_id, plan_data, updated_at) 
+       VALUES (?, ?, NOW()) 
+       ON DUPLICATE KEY UPDATE plan_data = VALUES(plan_data), updated_at = NOW()`,
+      [userId, planJson]
+    );
+    
+    res.json({ success: true, data: { message: '计划已保存' } });
+  } catch (error) {
+    console.error('保存主页学习计划失败:', error);
+    res.status(500).json({ success: false, message: '保存学习计划失败' });
+  }
+});
+
 router.get('/settings', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;

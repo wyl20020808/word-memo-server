@@ -133,6 +133,9 @@ router.post('/progress/update', authenticateToken, async (req, res) => {
     const { subject, studyTime, exercisesDone, chaptersDone, notesCount, errorCount, customData } = req.body;
     const today = new Date().toISOString().split('T')[0];
 
+    // mysql2 不允许绑定 undefined；这里把 undefined 显式转为 null（保留 0）
+    const toNull = (v) => (typeof v === 'undefined' ? null : v);
+
     await pool.execute(`
       INSERT INTO study_progress (user_id, subject, date, study_time, exercises_done, chapters_done, notes_count, error_count, custom_data)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -145,7 +148,12 @@ router.post('/progress/update', authenticateToken, async (req, res) => {
         custom_data = COALESCE(?, custom_data)
     `, [
       userId, subject, today, studyTime || 0, exercisesDone || 0, chaptersDone || '', notesCount || 0, errorCount || 0, JSON.stringify(customData || {}),
-      studyTime, exercisesDone, chaptersDone, notesCount, errorCount, JSON.stringify(customData || {})
+      toNull(studyTime),
+      toNull(exercisesDone),
+      toNull(chaptersDone),
+      toNull(notesCount),
+      toNull(errorCount),
+      typeof customData === 'undefined' ? null : JSON.stringify(customData)
     ]);
 
     res.json({ success: true, message: '更新成功' });

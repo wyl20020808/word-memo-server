@@ -256,6 +256,15 @@ async function createTables() {
       notes_count INT DEFAULT 0,
       analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_user_analyzed (user_id, analyzed_at)
+    )`,
+    // 主页学习计划表（跨设备同步）
+    `CREATE TABLE IF NOT EXISTS user_home_plan (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      user_id INT NOT NULL,
+      plan_data JSON COMMENT '学习计划数据',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_user (user_id)
     )`
   ];
   
